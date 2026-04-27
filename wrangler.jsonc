@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dramscript",
+  "account_id": "9504d9e9e11794b5bdf8eed4cc1f8129",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-09-27",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "dist/client"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "dramscript_db",
+      "database_name": "dramscript-db",
+      "database_id": "f7bfa1c8-502b-4749-a734-452d36c3ca55"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "SESSIONS",
+      "id": "310e2455965048d690bb9854bd0d2fce"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "IMAGES",
+      "bucket_name": "dramscript-images"
+    }
+  ]
+}
