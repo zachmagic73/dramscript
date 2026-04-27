@@ -3,7 +3,7 @@ import { initiateGoogleLogin, handleCallback, handleLogout, handleMe } from './a
 import { updateUser } from './users';
 import {
   listRecipes, getRecipe, createRecipe, updateRecipe, deleteRecipe,
-  getRecipeVersions, getVersionSnapshot, getRiff,
+  getRecipeVersions, getVersionSnapshot, getRiff, restoreVersion,
 } from './recipes';
 import { uploadImage, serveImage, deleteImage, setPrimaryImage } from './images';
 import { listTemplates, getTemplate, startFromTemplate } from './templates';
@@ -47,6 +47,7 @@ export default {
     // /api/versions/:versionId (snapshot detail)
     const snapshotMatch = pathname.match(/^\/api\/versions\/([^/]+)$/);
     if (snapshotMatch && method === 'GET') return getVersionSnapshot(request, env, snapshotMatch[1]);
+    if (snapshotMatch && method === 'POST') return restoreVersion(request, env, snapshotMatch[1]);
 
     // ── Images ────────────────────────────────────────────────────────────────
     // POST /api/recipes/:id/images  — upload (body is raw image)

@@ -6,7 +6,9 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import StarIcon from '@mui/icons-material/Star';
-import type { RecipeTemplate, Recipe } from '../types';
+import type { Recipe } from '../types';
+import { useAuth } from '../hooks/useAuth';
+import { formatAmountWithPreference } from '../utils/units';
 
 interface RiffCard {
   id: string;
@@ -18,14 +20,21 @@ interface RiffCard {
   created_at: string;
 }
 
-interface TemplateDetailData extends RecipeTemplate {
-  canonical_recipe: Recipe;
-  riffs: RiffCard[];
+interface TemplateDetailData {
+  id: string;
+  name: string;
+  description?: string;
+  base_type?: string;
+  riff_count?: number;
+  avg_rating?: number;
+  canonical?: Recipe | null;
+  riffs?: RiffCard[];
 }
 
 export default function TemplateDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [data, setData] = useState<TemplateDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,8 +46,8 @@ export default function TemplateDetail() {
       try {
         const res = await fetch(`/api/templates/${id}`);
         if (!res.ok) throw new Error('Template not found');
-        const json = await res.json() as { template: TemplateDetailData };
-        setData(json.template);
+        const json = await res.json() as { template: TemplateDetailData; riffs: RiffCard[] };
+        setData({ ...json.template, riffs: json.riffs });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error loading template');
       } finally {
@@ -76,7 +85,7 @@ export default function TemplateDetail() {
     </Box>
   );
 
-  const recipe = data.canonical_recipe;
+const recipe = data.canonical;
 
   return (
     <Box>
@@ -115,16 +124,19 @@ export default function TemplateDetail() {
       <Divider sx={{ mb: 3 }} />
 
       {/* ── Canonical recipe ── */}
+      {recipe && (
       <Grid2 container spacing={4}>
         <Grid2 size={{ xs: 12, md: 5 }}>
           <Typography variant="h6" gutterBottom>Ingredients</Typography>
-          {recipe.ingredients && recipe.ingredients.length > 0 ? (
+          {recipe?.ingredients && recipe.ingredients.length > 0 ? (
             <Box component="ul" sx={{ pl: 2, m: 0 }}>
               {recipe.ingredients.map((ing, i) => (
                 <Box component="li" key={i} sx={{ mb: 0.5 }}>
                   <Typography variant="body2">
                     {ing.amount != null && (
-                      <Box component="span" className="amount">{ing.amount}{ing.unit ? ` ${ing.unit}` : ''} </Box>
+                      <Box component="span" className="amount">
+                        {formatAmountWithPreference(ing.amount, ing.unit, user?.default_units ?? 'oz')} 
+                      </Box>
                     )}
                     {ing.name}
                   </Typography>
@@ -145,7 +157,7 @@ export default function TemplateDetail() {
 
         <Grid2 size={{ xs: 12, md: 7 }}>
           <Typography variant="h6" gutterBottom>Method</Typography>
-          {recipe.steps && recipe.steps.length > 0 ? (
+          {recipe?.steps && recipe.steps.length > 0 ? (
             <Box component="ol" sx={{ pl: 2, m: 0 }}>
               {recipe.steps.map((step, i) => (
                 <Box component="li" key={i} sx={{ mb: 1 }}>
@@ -158,6 +170,7 @@ export default function TemplateDetail() {
           )}
         </Grid2>
       </Grid2>
+      )}
 
       {/* ── Community riffs ── */}
       {data.riffs && data.riffs.length > 0 && (

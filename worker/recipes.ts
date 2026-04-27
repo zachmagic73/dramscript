@@ -13,6 +13,7 @@ interface RecipeInput {
   tags?: string[];
   is_public?: boolean;
   want_to_make?: boolean;
+  placeholder_icon?: number | null;
   template_id?: string | null;
   source_recipe_id?: string | null;
   servings?: number;
@@ -72,8 +73,18 @@ export async function listRecipes(request: Request, env: Env): Promise<Response>
   if (difficulty) { query += ' AND r.difficulty = ?'; params.push(difficulty); }
   if (tag) { query += ' AND r.tags LIKE ?'; params.push(`%"${tag}"%`); }
   if (search) {
-    query += ' AND (r.name LIKE ? OR r.notes LIKE ?)';
-    params.push(`%${search}%`, `%${search}%`);
+    query += `
+      AND (
+        r.name LIKE ?
+        OR r.notes LIKE ?
+        OR EXISTS (
+          SELECT 1 FROM ingredients i
+          WHERE i.recipe_id = r.id
+            AND i.name LIKE ?
+        )
+      )
+    `;
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
   query += ' ORDER BY r.updated_at DESC';
 
@@ -127,8 +138,8 @@ export async function createRecipe(request: Request, env: Env): Promise<Response
     .prepare(`
       INSERT INTO recipes
         (id, user_id, name, type, glass_type, ice_type, method, garnish, notes,
-         difficulty, tags, is_public, want_to_make, template_id, source_recipe_id, servings, version)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+         difficulty, tags, is_public, want_to_make, placeholder_icon, template_id, source_recipe_id, servings, version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `)
     .bind(
       id, auth.user_id, body.name.trim(), body.type ?? 'cocktail',
@@ -136,6 +147,7 @@ export async function createRecipe(request: Request, env: Env): Promise<Response
       body.garnish ?? null, body.notes ?? null, body.difficulty ?? null,
       JSON.stringify(body.tags ?? []),
       body.is_public ? 1 : 0, body.want_to_make ? 1 : 0,
+      body.placeholder_icon ?? null,
       body.template_id ?? null, body.source_recipe_id ?? null,
       body.servings ?? 1,
     )
@@ -186,7 +198,7 @@ export async function updateRecipe(request: Request, env: Env, id: string): Prom
       UPDATE recipes SET
         name = ?, type = ?, glass_type = ?, ice_type = ?, method = ?,
         garnish = ?, notes = ?, difficulty = ?, tags = ?, is_public = ?,
-        want_to_make = ?, servings = ?, version = ?,
+        want_to_make = ?, placeholder_icon = ?, servings = ?, version = ?,
         updated_at = strftime('%s', 'now')
       WHERE id = ? AND user_id = ?
     `)
@@ -196,6 +208,7 @@ export async function updateRecipe(request: Request, env: Env, id: string): Prom
       body.garnish ?? null, body.notes ?? null, body.difficulty ?? null,
       JSON.stringify(body.tags ?? []),
       body.is_public ? 1 : 0, body.want_to_make ? 1 : 0,
+      body.placeholder_icon ?? null,
       body.servings ?? 1, newVersion,
       id, auth.user_id,
     )
@@ -260,6 +273,93 @@ export async function getVersionSnapshot(request: Request, env: Env, versionId: 
   return json({ snapshot: JSON.parse(version.snapshot) });
 }
 
+export async function restoreVersion(request: Request, env: Env, versionId: string): Promise<Response> {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+
+  const version = await env.dramscript_db
+    .prepare(`
+      SELECT rv.id, rv.recipe_id, rv.snapshot
+      FROM recipe_versions rv
+      JOIN recipes r ON r.id = rv.recipe_id
+      WHERE rv.id = ? AND r.user_id = ?
+    `)
+    .bind(versionId, auth.user_id)
+    .first<{ id: string; recipe_id: string; snapshot: string }>();
+
+  if (!version) return notFound();
+
+  const currentRecipe = await env.dramscript_db
+    .prepare('SELECT * FROM recipes WHERE id = ? AND user_id = ?')
+    .bind(version.recipe_id, auth.user_id)
+    .first<DbRow & { version: number }>();
+
+  if (!currentRecipe) return notFound();
+
+  const [currentIngredients, currentSteps] = await Promise.all([
+    env.dramscript_db.prepare('SELECT * FROM ingredients WHERE recipe_id = ?').bind(version.recipe_id).all(),
+    env.dramscript_db.prepare('SELECT * FROM steps WHERE recipe_id = ?').bind(version.recipe_id).all(),
+  ]);
+
+  // Snapshot current state before restoring.
+  const currentSnapshot = JSON.stringify({
+    ...currentRecipe,
+    tags: currentRecipe.tags ? JSON.parse(currentRecipe.tags as string) : [],
+    ingredients: currentIngredients.results,
+    steps: currentSteps.results,
+  });
+
+  await env.dramscript_db
+    .prepare('INSERT INTO recipe_versions (id, recipe_id, version, snapshot) VALUES (?, ?, ?, ?)')
+    .bind(crypto.randomUUID(), version.recipe_id, currentRecipe.version, currentSnapshot)
+    .run();
+
+  const snapshot = JSON.parse(version.snapshot) as RecipeInput & {
+    tags?: string[];
+    ingredients?: { name: string; amount?: number | null; unit?: string | null }[];
+    steps?: { description: string }[];
+  };
+
+  const newVersion = currentRecipe.version + 1;
+
+  await env.dramscript_db
+    .prepare(`
+      UPDATE recipes SET
+        name = ?, type = ?, glass_type = ?, ice_type = ?, method = ?,
+        garnish = ?, notes = ?, difficulty = ?, tags = ?, is_public = ?,
+        want_to_make = ?, placeholder_icon = ?, servings = ?, version = ?,
+        updated_at = strftime('%s', 'now')
+      WHERE id = ? AND user_id = ?
+    `)
+    .bind(
+      snapshot.name?.trim() || currentRecipe.name,
+      snapshot.type ?? currentRecipe.type,
+      snapshot.glass_type ?? null,
+      snapshot.ice_type ?? null,
+      snapshot.method ?? null,
+      snapshot.garnish ?? null,
+      snapshot.notes ?? null,
+      snapshot.difficulty ?? null,
+      JSON.stringify(snapshot.tags ?? []),
+      snapshot.is_public ? 1 : 0,
+      snapshot.want_to_make ? 1 : 0,
+      snapshot.placeholder_icon ?? null,
+      snapshot.servings ?? 1,
+      newVersion,
+      version.recipe_id,
+      auth.user_id,
+    )
+    .run();
+
+  await env.dramscript_db.prepare('DELETE FROM ingredients WHERE recipe_id = ?').bind(version.recipe_id).run();
+  await env.dramscript_db.prepare('DELETE FROM steps WHERE recipe_id = ?').bind(version.recipe_id).run();
+
+  if (snapshot.ingredients?.length) await insertIngredients(env, version.recipe_id, snapshot.ingredients);
+  if (snapshot.steps?.length) await insertSteps(env, version.recipe_id, snapshot.steps);
+
+  return json({ ok: true, version: newVersion });
+}
+
 export async function getRiff(request: Request, env: Env, id: string): Promise<Response> {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
@@ -283,7 +383,8 @@ export async function getRiff(request: Request, env: Env, id: string): Promise<R
       source_recipe_id: id,
       version: 1,
       is_public: 0,
-      want_to_make: 0,
+      want_to_make: 1,
+      placeholder_icon: null,
       tags: source.tags ? JSON.parse(source.tags as string) : [],
       ingredients: ingredients.results,
       steps: steps.results,

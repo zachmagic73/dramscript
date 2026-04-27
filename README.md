@@ -63,13 +63,24 @@ npx wrangler secret put GOOGLE_CLIENT_SECRET
 npx wrangler secret put SESSION_SECRET
 ```
 
+For local `wrangler dev`, also create a `.dev.vars` file (not committed) because local mode does not always use deployed Worker secrets.
+
+Example:
+
+```dotenv
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+SESSION_SECRET=your-long-random-secret
+```
+
 ## Google OAuth Setup
 
 Create a Google OAuth 2.0 Client ID of type Web application.
 
 Add authorized redirect URIs for each environment you use:
 
-- Local Worker dev example: `http://127.0.0.1:8787/auth/callback`
+- Local app example: `http://localhost:5188/auth/callback`
+- Local worker example: `http://127.0.0.1:8795/auth/callback`
 - Deployed Worker example: `https://<your-worker-domain>/auth/callback`
 
 The app computes redirect URI from the request origin, so each active origin must be allowed in Google Console.

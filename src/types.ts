@@ -54,6 +54,7 @@ export interface Recipe {
   version: number;
   is_public: number;
   want_to_make: number;
+  placeholder_icon: number | null;
   template_id: string | null;
   source_recipe_id: string | null;
   servings: number;
@@ -105,6 +106,7 @@ export interface RecipeFormValues {
   tags: string[];
   is_public: boolean;
   want_to_make: boolean;
+  placeholder_icon: number | null;
   template_id: string | null;
   source_recipe_id: string | null;
   servings: number;

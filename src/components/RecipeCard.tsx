@@ -1,5 +1,7 @@
 import { Card, CardActionArea, CardContent, CardMedia, Box, Typography, Chip } from '@mui/material';
 import type { Recipe } from '../types';
+import CocktailSpritePlaceholder from './CocktailSpritePlaceholder';
+import { resolvePlaceholderIcon } from '../utils/cocktailIcons';
 
 const TYPE_EMOJI: Record<string, string> = {
   cocktail: '🍸', syrup: '🍯', bitter: '🌿', tincture: '🧪',
@@ -21,36 +23,42 @@ export default function RecipeCard({ recipe, onClick }: RecipeCardProps) {
   const imageUrl = recipe.primary_image
     ? `/api/images/${recipe.primary_image}`
     : null;
+  const placeholderIcon = resolvePlaceholderIcon(recipe, recipe.placeholder_icon);
 
   return (
     <Card>
       <CardActionArea onClick={onClick}>
-        {/* Image or emoji placeholder */}
-        {imageUrl ? (
-          <CardMedia
-            component="img"
-            height="160"
-            image={imageUrl}
-            alt={recipe.name}
-            sx={{ objectFit: 'cover' }}
-          />
-        ) : (
-          <Box
+        <Box sx={{ display: 'flex', alignItems: 'stretch' }}>
+          {imageUrl ? (
+            <CardMedia
+              component="img"
+              image={imageUrl}
+              alt={recipe.name}
+              sx={{ width: 110, height: 110, objectFit: 'cover', flexShrink: 0 }}
+            />
+          ) : (
+            <CocktailSpritePlaceholder
+              seed={`${recipe.id}:${recipe.name}`}
+              fallbackEmoji={TYPE_EMOJI[recipe.type] ?? '🥃'}
+              iconNumber={placeholderIcon}
+              height={110}
+              width={110}
+              withBottomBorder={false}
+            />
+          )}
+
+          <CardContent sx={{ flex: 1, minWidth: 0 }}>
+          <Typography
+            variant="h6"
+            gutterBottom
             sx={{
-              height: 100,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 48,
-              bgcolor: 'background.default',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              wordBreak: 'break-word',
             }}
           >
-            {TYPE_EMOJI[recipe.type] ?? '🥃'}
-          </Box>
-        )}
-
-        <CardContent>
-          <Typography variant="h6" gutterBottom noWrap>
             {recipe.name}
           </Typography>
 
@@ -84,7 +92,8 @@ export default function RecipeCard({ recipe, onClick }: RecipeCardProps) {
               )}
             </Box>
           )}
-        </CardContent>
+          </CardContent>
+        </Box>
       </CardActionArea>
     </Card>
   );

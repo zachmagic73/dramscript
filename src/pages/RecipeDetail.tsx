@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Chip, Button, Divider, IconButton, Dialog,
   DialogTitle, DialogContent, DialogActions, Alert, CircularProgress,
-  List, ListItem, ListItemText, Tooltip, Paper,
+  List, ListItem, ListItemText, Tooltip, Paper, Menu, MenuItem, useMediaQuery, useTheme,
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -11,18 +11,28 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import HistoryIcon from '@mui/icons-material/History';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ImageIcon from '@mui/icons-material/Image';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import type { Recipe, RecipeVersion } from '../types';
 import ImageManager from '../components/ImageManager';
 import { useAuth } from '../hooks/useAuth';
+import { formatAmountWithPreference } from '../utils/units';
 
 const DIFFICULTY_COLOR: Record<string, 'success' | 'warning' | 'error'> = {
   easy: 'success', medium: 'warning', hard: 'error',
 };
 
+function formatFieldLabel(value: string): string {
+  return value
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export default function RecipeDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,6 +42,7 @@ export default function RecipeDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const [showImages, setShowImages] = useState(false);
+  const [actionsAnchorEl, setActionsAnchorEl] = useState<null | HTMLElement>(null);
   const [versions, setVersions] = useState<RecipeVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [previewSnapshot, setPreviewSnapshot] = useState<Recipe | null>(null);
@@ -83,6 +94,18 @@ export default function RecipeDetail() {
     setPreviewSnapshot(data.snapshot);
   };
 
+  const restoreVersion = async (versionId: string) => {
+    if (!id) return;
+    const res = await fetch(`/api/versions/${versionId}`, { method: 'POST' });
+    if (!res.ok) return;
+    await loadVersions();
+    const recipeRes = await fetch(`/api/recipes/${id}`);
+    if (!recipeRes.ok) return;
+    const data = await recipeRes.json() as { recipe: Recipe };
+    setRecipe(data.recipe);
+    setPreviewSnapshot(null);
+  };
+
   if (loading) return (
     <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
       <CircularProgress color="primary" />
@@ -95,6 +118,7 @@ export default function RecipeDetail() {
 
   const isOwner = user?.id === recipe.user_id;
   const primaryImage = recipe.images?.find((i) => i.is_primary);
+  const ownerMenuOpen = Boolean(actionsAnchorEl);
 
   return (
     <Box>
@@ -112,12 +136,7 @@ export default function RecipeDetail() {
         <Box>
           <Typography variant="h4" gutterBottom>{recipe.name}</Typography>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-            <Chip label={recipe.type} size="small" sx={{ textTransform: 'capitalize' }} />
             {recipe.method && <Chip label={recipe.method} size="small" variant="outlined" />}
-            {recipe.glass_type && <Chip label={recipe.glass_type.replace('_', ' ')} size="small" variant="outlined" />}
-            {recipe.ice_type && recipe.ice_type !== 'none' && (
-              <Chip label={`${recipe.ice_type.replace('_', ' ')} ice`} size="small" variant="outlined" />
-            )}
             {recipe.difficulty && (
               <Chip label={recipe.difficulty} size="small" color={DIFFICULTY_COLOR[recipe.difficulty]} />
             )}
@@ -128,33 +147,69 @@ export default function RecipeDetail() {
 
         {/* Actions */}
         {isOwner && (
-          <Box sx={{ display: 'flex', gap: 0.5 }}>
-            <Tooltip title="Manage images">
-              <IconButton onClick={() => setShowImages(true)}>
-                <ImageIcon />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Version history">
-              <IconButton onClick={loadVersions}>
-                <HistoryIcon />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Create riff of">
-              <IconButton onClick={handleRiff}>
-                <ContentCopyIcon />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Edit">
-              <IconButton onClick={() => navigate(`/recipes/${id}/edit`)}>
-                <EditIcon />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Delete">
-              <IconButton color="error" onClick={() => setConfirmDelete(true)}>
-                <DeleteIcon />
-              </IconButton>
-            </Tooltip>
-          </Box>
+          <>
+            {isMobile ? (
+              <>
+                <IconButton onClick={(e) => setActionsAnchorEl(e.currentTarget)} aria-label="Recipe actions">
+                  <MoreVertIcon />
+                </IconButton>
+                <Menu
+                  anchorEl={actionsAnchorEl}
+                  open={ownerMenuOpen}
+                  onClose={() => setActionsAnchorEl(null)}
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                >
+                  <MenuItem onClick={() => { setActionsAnchorEl(null); setShowImages(true); }}>
+                    Manage images
+                  </MenuItem>
+                  <MenuItem onClick={() => { setActionsAnchorEl(null); void loadVersions(); }}>
+                    Version history
+                  </MenuItem>
+                  <MenuItem onClick={() => { setActionsAnchorEl(null); void handleRiff(); }}>
+                    Create riff of
+                  </MenuItem>
+                  <MenuItem onClick={() => { setActionsAnchorEl(null); navigate(`/recipes/${id}/edit`); }}>
+                    Edit
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() => { setActionsAnchorEl(null); setConfirmDelete(true); }}
+                    sx={{ color: 'error.main' }}
+                  >
+                    Delete
+                  </MenuItem>
+                </Menu>
+              </>
+            ) : (
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                <Tooltip title="Manage images">
+                  <IconButton onClick={() => setShowImages(true)}>
+                    <ImageIcon />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Version history">
+                  <IconButton onClick={loadVersions}>
+                    <HistoryIcon />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Create riff of">
+                  <IconButton onClick={handleRiff}>
+                    <ContentCopyIcon />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Edit">
+                  <IconButton onClick={() => navigate(`/recipes/${id}/edit`)}>
+                    <EditIcon />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Delete">
+                  <IconButton color="error" onClick={() => setConfirmDelete(true)}>
+                    <DeleteIcon />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            )}
+          </>
         )}
         {!isOwner && (
           <Tooltip title="Create riff of">
@@ -185,6 +240,19 @@ export default function RecipeDetail() {
       )}
 
       {/* Garnish */}
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        <strong>Type:</strong> {formatFieldLabel(recipe.type)}
+      </Typography>
+      {recipe.glass_type && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          <strong>Glassware:</strong> {formatFieldLabel(recipe.glass_type)}
+        </Typography>
+      )}
+      {recipe.ice_type && recipe.ice_type !== 'none' && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          <strong>Ice:</strong> {formatFieldLabel(recipe.ice_type)}
+        </Typography>
+      )}
       {recipe.garnish && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           <strong>Garnish:</strong> {recipe.garnish}
@@ -205,7 +273,7 @@ export default function RecipeDetail() {
                     <Box component="span" sx={{ display: 'flex', gap: 1.5, alignItems: 'baseline' }}>
                       {(ing.amount !== null || ing.unit) && (
                         <Typography component="span" className="amount" color="primary.main">
-                          {ing.amount != null ? ing.amount : ''}{ing.unit ? ` ${ing.unit}` : ''}
+                          {formatAmountWithPreference(ing.amount, ing.unit, user?.default_units ?? 'oz')}
                         </Typography>
                       )}
                       <Typography component="span">{ing.name}</Typography>
@@ -284,6 +352,9 @@ export default function RecipeDetail() {
                     <Button size="small" onClick={() => previewVersion(v.id)}>
                       Preview
                     </Button>
+                    <Button size="small" color="warning" onClick={() => restoreVersion(v.id)}>
+                      Restore
+                    </Button>
                   </ListItem>
                 ))}
               </List>
@@ -292,7 +363,7 @@ export default function RecipeDetail() {
                   <Typography variant="subtitle2" gutterBottom>Preview — v{previewSnapshot.version}</Typography>
                   <Typography variant="body2" color="text.secondary">
                     {previewSnapshot.ingredients?.map((i) =>
-                      `${i.amount ?? ''} ${i.unit ?? ''} ${i.name}`.trim()
+                      `${formatAmountWithPreference(i.amount, i.unit, user?.default_units ?? 'oz')} ${i.name}`.trim()
                     ).join(', ')}
                   </Typography>
                 </Paper>

@@ -32,8 +32,13 @@ export default function Profile() {
         const data = await res.json() as { error?: string };
         throw new Error(data.error ?? 'Failed to save');
       }
-      const data = await res.json() as { display_name: string | null; default_units: 'oz' | 'ml' };
-      setUser({ ...user, display_name: data.display_name, default_units: data.default_units });
+      const data = await res.json() as {
+        user: {
+          display_name: string | null;
+          default_units: 'oz' | 'ml';
+        };
+      };
+      setUser({ ...user, display_name: data.user.display_name, default_units: data.user.default_units });
       setSuccess(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');

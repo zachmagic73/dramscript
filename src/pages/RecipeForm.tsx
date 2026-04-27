@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
-  Box, Typography, TextField, Select, MenuItem, FormControl, InputLabel,
+  Box, Typography, TextField, Select, MenuItem, FormControl,
   Button, Switch, FormControlLabel, Chip, Autocomplete, Alert,
-  CircularProgress, Divider, IconButton, Tooltip,
+  CircularProgress, Divider, IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
   type DragEndEvent,
@@ -20,6 +21,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import type { Recipe, RecipeFormValues } from '../types';
 import { RECIPE_TYPES, ICE_TYPES, METHODS, DIFFICULTIES, UNITS, GLASS_TYPES } from '../types';
+import CocktailSpritePlaceholder from '../components/CocktailSpritePlaceholder';
+import { ICON_COUNT, resolvePlaceholderIcon } from '../utils/cocktailIcons';
 
 // ── Sortable ingredient row ───────────────────────────────────────────────────
 function SortableIngredientRow({
@@ -38,7 +41,10 @@ function SortableIngredientRow({
     <Box
       ref={setNodeRef}
       sx={{
-        display: 'flex', gap: 1, alignItems: 'center', mb: 1,
+        display: 'flex',
+        gap: 1,
+        alignItems: { xs: 'flex-start', sm: 'center' },
+        mb: 1,
         opacity: isDragging ? 0.5 : 1,
         transform: CSS.Transform.toString(transform),
         transition,
@@ -47,24 +53,56 @@ function SortableIngredientRow({
       <IconButton size="small" sx={{ cursor: 'grab', color: 'text.disabled', touchAction: 'none' }} {...attributes} {...listeners}>
         <DragIndicatorIcon fontSize="small" />
       </IconButton>
-      <TextField
-        size="small" placeholder="Amount" value={ing.amount}
-        onChange={(e) => onChange('amount', e.target.value)}
-        sx={{ width: 90 }}
-        slotProps={{ htmlInput: { type: 'number', min: 0, step: 0.25 } }}
-      />
-      <FormControl size="small" sx={{ width: 110 }}>
-        <Select value={ing.unit} onChange={(e) => onChange('unit', e.target.value)} displayEmpty>
-          <MenuItem value=""><em>unit</em></MenuItem>
-          {UNITS.map((u) => <MenuItem key={u.value} value={u.value}>{u.label}</MenuItem>)}
-        </Select>
-      </FormControl>
-      <TextField
-        size="small" placeholder="Ingredient name" value={ing.name}
-        onChange={(e) => onChange('name', e.target.value)}
-        sx={{ flex: 1 }}
-      />
-      <IconButton size="small" color="error" onClick={onRemove}>
+
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        {/* Desktop/tablet: single-line layout */}
+        <Box sx={{ display: { xs: 'none', sm: 'flex' }, gap: 1, alignItems: 'center' }}>
+          <TextField
+            size="small" placeholder="Amount" value={ing.amount}
+            onChange={(e) => onChange('amount', e.target.value)}
+            sx={{ width: 90 }}
+            slotProps={{ htmlInput: { type: 'number', min: 0, step: 0.25 } }}
+          />
+          <FormControl size="small" sx={{ width: 110 }}>
+            <Select value={ing.unit} onChange={(e) => onChange('unit', e.target.value)} displayEmpty>
+              <MenuItem value=""><em>unit</em></MenuItem>
+              {UNITS.map((u) => <MenuItem key={u.value} value={u.value}>{u.label}</MenuItem>)}
+            </Select>
+          </FormControl>
+          <TextField
+            size="small" placeholder="Ingredient name" value={ing.name}
+            onChange={(e) => onChange('name', e.target.value)}
+            sx={{ flex: 1 }}
+          />
+        </Box>
+
+        {/* Mobile: amount + unit on first line, ingredient on second line */}
+        <Box sx={{ display: { xs: 'block', sm: 'none' } }}>
+          <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+            <TextField
+              size="small" placeholder="Amount" value={ing.amount}
+              onChange={(e) => onChange('amount', e.target.value)}
+              sx={{ width: 110 }}
+              slotProps={{ htmlInput: { type: 'number', min: 0, step: 0.25 } }}
+            />
+            <FormControl size="small" sx={{ width: 130 }}>
+              <Select value={ing.unit} onChange={(e) => onChange('unit', e.target.value)} displayEmpty>
+                <MenuItem value=""><em>unit</em></MenuItem>
+                {UNITS.map((u) => <MenuItem key={u.value} value={u.value}>{u.label}</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Box>
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Ingredient name"
+            value={ing.name}
+            onChange={(e) => onChange('name', e.target.value)}
+          />
+        </Box>
+      </Box>
+
+      <IconButton size="small" color="error" onClick={onRemove} sx={{ mt: { xs: 0.5, sm: 0 } }}>
         <DeleteIcon fontSize="small" />
       </IconButton>
     </Box>
@@ -138,6 +176,7 @@ function recipeToPrefill(r: Recipe): Partial<RecipeFormValues> {
     tags: r.tags ?? [],
     is_public: Boolean(r.is_public),
     want_to_make: Boolean(r.want_to_make),
+    placeholder_icon: r.placeholder_icon ?? null,
     template_id: r.template_id ?? null,
     source_recipe_id: (r as Recipe & { source_recipe_id?: string | null }).source_recipe_id ?? null,
     servings: r.servings ?? 1,
@@ -161,7 +200,7 @@ const COMMON_TAGS = [
 const DEFAULT_VALUES: RecipeFormValues = {
   name: '', type: 'cocktail', glass_type: '', ice_type: '', method: '',
   garnish: '', notes: '', difficulty: '', tags: [],
-  is_public: false, want_to_make: false,
+  is_public: false, want_to_make: true, placeholder_icon: null,
   template_id: null, source_recipe_id: null,
   servings: 1,
   ingredients: [emptyIng()],
@@ -179,6 +218,7 @@ export default function RecipeForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -327,47 +367,52 @@ export default function RecipeForm() {
       />
 
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
-        <FormControl sx={{ minWidth: 150 }}>
-          <InputLabel>Type</InputLabel>
-          <Select value={values.type} label="Type" onChange={(e) => set('type', e.target.value as RecipeFormValues['type'])}>
-            {RECIPE_TYPES.map((t) => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
-          </Select>
-        </FormControl>
-
-        <FormControl sx={{ minWidth: 150 }}>
-          <InputLabel>Glass</InputLabel>
-          <Select value={values.glass_type} label="Glass" onChange={(e) => set('glass_type', e.target.value)} displayEmpty>
-            <MenuItem value=""><em>None</em></MenuItem>
-            {GLASS_TYPES.map((g) => <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>)}
-          </Select>
-        </FormControl>
-
-        <FormControl sx={{ minWidth: 150 }}>
-          <InputLabel>Ice</InputLabel>
-          <Select value={values.ice_type} label="Ice" onChange={(e) => set('ice_type', e.target.value)} displayEmpty>
-            <MenuItem value=""><em>Not specified</em></MenuItem>
-            {ICE_TYPES.map((i) => <MenuItem key={i.value} value={i.value}>{i.label}</MenuItem>)}
-          </Select>
-        </FormControl>
-
-        <FormControl sx={{ minWidth: 150 }}>
-          <InputLabel>Method</InputLabel>
-          <Select value={values.method} label="Method" onChange={(e) => set('method', e.target.value)} displayEmpty>
-            <MenuItem value=""><em>Not specified</em></MenuItem>
-            {METHODS.map((m) => <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>)}
-          </Select>
-        </FormControl>
-
-        <FormControl sx={{ minWidth: 150 }}>
-          <InputLabel>Difficulty</InputLabel>
-          <Select value={values.difficulty} label="Difficulty" onChange={(e) => set('difficulty', e.target.value)} displayEmpty>
-            <MenuItem value=""><em>Not specified</em></MenuItem>
-            {DIFFICULTIES.map((d) => <MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>)}
-          </Select>
-        </FormControl>
+        <TextField
+          select label="Type" value={values.type} size="small"
+          onChange={(e) => set('type', e.target.value as RecipeFormValues['type'])}
+          sx={{ minWidth: 140 }}
+        >
+          {RECIPE_TYPES.map((t) => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
+        </TextField>
 
         <TextField
-          label="Servings" type="number" value={values.servings}
+          select label="Glass" value={values.glass_type} size="small"
+          onChange={(e) => set('glass_type', e.target.value)}
+          sx={{ minWidth: 140 }}
+        >
+          <MenuItem value=""><em>None</em></MenuItem>
+          {GLASS_TYPES.map((g) => <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>)}
+        </TextField>
+
+        <TextField
+          select label="Ice" value={values.ice_type} size="small"
+          onChange={(e) => set('ice_type', e.target.value)}
+          sx={{ minWidth: 140 }}
+        >
+          <MenuItem value=""><em>Not specified</em></MenuItem>
+          {ICE_TYPES.map((i) => <MenuItem key={i.value} value={i.value}>{i.label}</MenuItem>)}
+        </TextField>
+
+        <TextField
+          select label="Method" value={values.method} size="small"
+          onChange={(e) => set('method', e.target.value)}
+          sx={{ minWidth: 140 }}
+        >
+          <MenuItem value=""><em>Not specified</em></MenuItem>
+          {METHODS.map((m) => <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>)}
+        </TextField>
+
+        <TextField
+          select label="Difficulty" value={values.difficulty} size="small"
+          onChange={(e) => set('difficulty', e.target.value)}
+          sx={{ minWidth: 140 }}
+        >
+          <MenuItem value=""><em>Not specified</em></MenuItem>
+          {DIFFICULTIES.map((d) => <MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>)}
+        </TextField>
+
+        <TextField
+          label="Servings" type="number" value={values.servings} size="small"
           onChange={(e) => set('servings', Math.max(1, parseInt(e.target.value) || 1))}
           slotProps={{ htmlInput: { min: 1 } }}
           sx={{ width: 120 }}
@@ -397,16 +442,119 @@ export default function RecipeForm() {
       />
 
       {/* ── Visibility toggles ── */}
-      <Box sx={{ display: 'flex', gap: 3, mb: 3 }}>
+      <Box sx={{ display: 'flex', gap: 3, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
         <FormControlLabel
           control={<Switch checked={values.is_public} onChange={(e) => set('is_public', e.target.checked)} color="primary" />}
-          label="Public recipe"
+          label={(
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Typography component="span">Public recipe</Typography>
+              <Tooltip title="Public recipes can be viewed and riffed by other users. Your private notes stay on your own journal copy.">
+                <InfoOutlinedIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+              </Tooltip>
+            </Box>
+          )}
         />
-        <FormControlLabel
-          control={<Switch checked={values.want_to_make} onChange={(e) => set('want_to_make', e.target.checked)} color="primary" />}
-          label="Want to make"
-        />
+
+        <TextField
+          select
+          label="State"
+          size="small"
+          value={values.want_to_make ? 'want_to_make' : 'made'}
+          onChange={(e) => set('want_to_make', e.target.value === 'want_to_make')}
+          sx={{ minWidth: 180 }}
+          helperText="Tracked per user + recipe copy"
+        >
+          <MenuItem value="want_to_make">Want to make</MenuItem>
+          <MenuItem value="made">Made</MenuItem>
+        </TextField>
+
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+          <Box
+            onClick={() => setIconPickerOpen(true)}
+            sx={{
+              width: 56,
+              height: 56,
+              borderRadius: 1,
+              overflow: 'hidden',
+              border: '1px solid',
+              borderColor: 'divider',
+              cursor: 'pointer',
+            }}
+          >
+            <CocktailSpritePlaceholder
+              seed={`${values.name}:${values.type}:${values.glass_type}:${values.garnish}:${values.ice_type}`}
+              fallbackEmoji="🍸"
+              iconNumber={resolvePlaceholderIcon(values, values.placeholder_icon)}
+              height={56}
+              width={56}
+              withBottomBorder={false}
+            />
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Placeholder icon
+            </Typography>
+            <Button size="small" onClick={() => setIconPickerOpen(true)} sx={{ px: 0.5, minWidth: 'auto' }}>
+              {values.placeholder_icon == null ? 'Auto' : `Icon ${values.placeholder_icon}`}
+            </Button>
+          </Box>
+        </Box>
       </Box>
+
+      <Dialog open={iconPickerOpen} onClose={() => setIconPickerOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Choose Placeholder Icon</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mb: 1.5 }}>
+            <Button
+              variant={values.placeholder_icon == null ? 'contained' : 'outlined'}
+              size="small"
+              onClick={() => set('placeholder_icon', null)}
+            >
+              Auto (glass + garnish + ice)
+            </Button>
+          </Box>
+
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: 'repeat(4, 64px)', sm: 'repeat(6, 64px)' },
+              justifyContent: 'center',
+              gap: 1,
+            }}
+          >
+            {Array.from({ length: ICON_COUNT }, (_, i) => i + 1).map((iconNum) => {
+              const selected = values.placeholder_icon === iconNum;
+              return (
+                <Box
+                  key={iconNum}
+                  onClick={() => set('placeholder_icon', iconNum)}
+                  sx={{
+                    width: 64,
+                    height: 64,
+                    borderRadius: 1,
+                    overflow: 'hidden',
+                    border: '2px solid',
+                    borderColor: selected ? 'primary.main' : 'divider',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <CocktailSpritePlaceholder
+                    seed={`picker:${iconNum}`}
+                    fallbackEmoji="🍸"
+                    iconNumber={iconNum}
+                    height={64}
+                    width={64}
+                    withBottomBorder={false}
+                  />
+                </Box>
+              );
+            })}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIconPickerOpen(false)}>Done</Button>
+        </DialogActions>
+      </Dialog>
 
       <Divider sx={{ my: 3 }} />
 

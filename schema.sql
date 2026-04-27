@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS recipes (
   version          INTEGER DEFAULT 1,
   is_public        INTEGER DEFAULT 0,
   want_to_make     INTEGER DEFAULT 0,
+  placeholder_icon INTEGER,
   template_id      TEXT,
   source_recipe_id TEXT,
   servings         INTEGER DEFAULT 1,

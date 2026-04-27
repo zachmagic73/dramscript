@@ -3,4 +3,6 @@ dist/
 .wrangler/
 .env
 .env.local
+.dev.vars
+.dev.vars.*
 *.local

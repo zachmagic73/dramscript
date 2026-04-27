@@ -3,7 +3,27 @@ import { requireAuth, json, notFound } from './middleware';
 
 type DbRow = Record<string, unknown>;
 
-export async function listTemplates(_request: Request, env: Env): Promise<Response> {
+export async function listTemplates(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const search = url.searchParams.get('q')?.trim();
+  const type = url.searchParams.get('type')?.trim();
+
+  const where: string[] = [];
+  const params: Array<string> = [];
+
+  if (type) {
+    where.push('t.base_type = ?');
+    params.push(type);
+  }
+
+  if (search) {
+    where.push('(t.name LIKE ? OR t.description LIKE ? OR t.canonical_json LIKE ?)');
+    const like = `%${search}%`;
+    params.push(like, like, like);
+  }
+
+  const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+
   const templates = await env.dramscript_db
     .prepare(`
       SELECT
@@ -13,9 +33,11 @@ export async function listTemplates(_request: Request, env: Env): Promise<Respon
       FROM recipe_templates t
       LEFT JOIN recipes r ON r.template_id = t.id AND r.is_public = 1
       LEFT JOIN recipe_ratings rr ON rr.recipe_id = r.id
+      ${whereClause}
       GROUP BY t.id
       ORDER BY t.name ASC
     `)
+    .bind(...params)
     .all<DbRow>();
 
   return json({ templates: templates.results });
@@ -91,7 +113,8 @@ export async function startFromTemplate(request: Request, env: Env, id: string):
       id: undefined,
       source_recipe_id: null,
       is_public: 0,
-      want_to_make: 0,
+      want_to_make: 1,
+      placeholder_icon: null,
       version: 1,
     },
   });
