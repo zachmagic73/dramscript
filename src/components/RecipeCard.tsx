@@ -1,4 +1,4 @@
-import { Card, CardActionArea, CardContent, CardMedia, Box, Typography, Chip } from '@mui/material';
+import { Card, CardActionArea, CardContent, CardMedia, Box, Typography, Chip, Avatar } from '@mui/material';
 import type { Recipe } from '../types';
 import CocktailSpritePlaceholder from './CocktailSpritePlaceholder';
 import { resolvePlaceholderIcon } from '../utils/cocktailIcons';
@@ -17,9 +17,10 @@ const DIFFICULTY_COLOR: Record<string, 'success' | 'warning' | 'error'> = {
 interface RecipeCardProps {
   recipe: Recipe;
   onClick?: () => void;
+  showCreator?: boolean;
 }
 
-export default function RecipeCard({ recipe, onClick }: RecipeCardProps) {
+export default function RecipeCard({ recipe, onClick, showCreator }: RecipeCardProps) {
   const imageUrl = recipe.primary_image
     ? `/api/images/${recipe.primary_image}`
     : null;
@@ -90,6 +91,16 @@ export default function RecipeCard({ recipe, onClick }: RecipeCardProps) {
               {recipe.tags.length > 3 && (
                 <Chip label={`+${recipe.tags.length - 3}`} size="small" />
               )}
+            </Box>
+          )}
+
+          {/* Creator info (for discovered recipes) */}
+          {showCreator && recipe.display_name && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+              <Avatar src={recipe.avatar_url || undefined} sx={{ width: 24, height: 24 }} />
+              <Typography variant="caption" color="text.secondary">
+                {recipe.display_name}
+              </Typography>
             </Box>
           )}
           </CardContent>

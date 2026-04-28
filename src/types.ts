@@ -5,6 +5,7 @@ export type IceType = 'none' | 'cubed' | 'large_cube' | 'crushed' | 'cracked' | 
 export type RecipeMethod = 'stirred' | 'shaken' | 'built' | 'blended' | 'thrown' | 'batch';
 export type Difficulty = 'easy' | 'medium' | 'hard';
 export type Unit = 'oz' | 'ml' | 'dash' | 'barspoon' | 'tsp' | 'tbsp' | 'cup';
+export type RecipeVisibility = 'private' | 'friends' | 'public';
 
 export interface User {
   id: string;
@@ -21,7 +22,10 @@ export interface Ingredient {
   name: string;
   amount: number | null;
   unit: string | null;
+  referenced_recipe_id: string | null;
   order_index: number;
+  // Joined at display time
+  referencedRecipe?: Recipe | null;
 }
 
 export interface Step {
@@ -53,6 +57,7 @@ export interface Recipe {
   tags: string[];
   version: number;
   is_public: number;
+  visibility?: RecipeVisibility;
   want_to_make: number;
   placeholder_icon: number | null;
   template_id: string | null;
@@ -65,6 +70,9 @@ export interface Recipe {
   steps?: Step[];
   images?: RecipeImage[];
   primary_image?: string | null;
+  // For discovered recipes
+  display_name?: string;
+  avatar_url?: string | null;
 }
 
 export interface RecipeVersion {
@@ -88,8 +96,35 @@ export interface RecipeTemplate {
     ingredients?: { name: string; amount?: number; unit?: string }[];
     steps?: { description: string }[];
   } | null;
+  /** Flat ingredient name list returned by the list endpoint for synonym search indicators. */
+  ingredients?: string[];
   riff_count?: number;
   avg_rating?: number;
+}
+
+export interface FriendRequest {
+  id: string;
+  requester_id: string;
+  addressee_id: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  created_at: number;
+  // Joined
+  display_name?: string;
+  avatar_url?: string | null;
+  email?: string;
+}
+
+export interface Friendship {
+  id: string;
+  requester_id: string;
+  addressee_id: string;
+  friend_user_id?: string;
+  status: string;
+  created_at: number;
+  // Joined
+  display_name?: string;
+  avatar_url?: string | null;
+  email?: string;
 }
 
 // ── Form input types ──────────────────────────────────────────────────────────
@@ -105,12 +140,13 @@ export interface RecipeFormValues {
   difficulty: string;
   tags: string[];
   is_public: boolean;
+  visibility: RecipeVisibility;
   want_to_make: boolean;
   placeholder_icon: number | null;
   template_id: string | null;
   source_recipe_id: string | null;
   servings: number;
-  ingredients: { id: string; name: string; amount: string; unit: string }[];
+  ingredients: { id: string; name: string; amount: string; unit: string; referenced_recipe_id: string | null }[];
   steps: { id: string; description: string }[];
 }
 

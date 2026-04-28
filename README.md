@@ -54,6 +54,13 @@ Set these Worker secrets before auth flows:
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `SESSION_SECRET`
+- `R2_ACCESS_KEY_ID` (R2 API token access key)
+- `R2_SECRET_ACCESS_KEY` (R2 API token secret)
+
+Set these Worker vars in `wrangler.jsonc` (or equivalent env config):
+
+- `R2_ACCOUNT_ID`
+- `R2_BUCKET_NAME`
 
 PowerShell example:
 
@@ -61,6 +68,8 @@ PowerShell example:
 npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
 npx wrangler secret put SESSION_SECRET
+npx wrangler secret put R2_ACCESS_KEY_ID
+npx wrangler secret put R2_SECRET_ACCESS_KEY
 ```
 
 For local `wrangler dev`, also create a `.dev.vars` file (not committed) because local mode does not always use deployed Worker secrets.
@@ -71,7 +80,15 @@ Example:
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 SESSION_SECRET=your-long-random-secret
+R2_ACCOUNT_ID=your-cloudflare-account-id
+R2_BUCKET_NAME=your-r2-bucket-name
+R2_ACCESS_KEY_ID=your-r2-access-key-id
+R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
 ```
+
+The image upload flow is presigned: the frontend asks the Worker for a short-lived upload URL, uploads directly to R2, then calls finalize to save metadata in D1.
+
+When using presigned browser uploads, configure R2 CORS to allow your app origin(s) for `PUT` and `Content-Type` headers.
 
 ## Google OAuth Setup
 

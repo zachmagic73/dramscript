@@ -12,14 +12,19 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import LocalBarIcon from '@mui/icons-material/LocalBar';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AutoStoriesIcon from '@mui/icons-material/AutoStories';
+import PublicIcon from '@mui/icons-material/Public';
+import GroupIcon from '@mui/icons-material/Group';
 import { useAuth } from '../hooks/useAuth';
+import FeatureNoticeBanner from './FeatureNoticeBanner';
 
 const DRAWER_WIDTH = 240;
 
 const navItems = [
-  { label: 'My Journal',  icon: <MenuBookIcon />,    path: '/'          },
-  { label: 'Templates',   icon: <AutoStoriesIcon />, path: '/templates' },
-  { label: 'Profile',     icon: <AccountCircleIcon />, path: '/profile' },
+  { label: 'My Journal',  icon: <MenuBookIcon />,      path: '/'          },
+  { label: 'Templates',  icon: <AutoStoriesIcon />,   path: '/templates' },
+  { label: 'Discover',   icon: <PublicIcon />,        path: '/discover'  },
+  { label: 'Friends',    icon: <GroupIcon />,         path: '/friends'   },
+  { label: 'Profile',    icon: <AccountCircleIcon />, path: '/profile'   },
 ];
 
 export default function Layout() {
@@ -143,6 +148,7 @@ export default function Layout() {
           overflow: 'hidden',
         }}
       >
+        <FeatureNoticeBanner />
         <Outlet />
       </Box>
 

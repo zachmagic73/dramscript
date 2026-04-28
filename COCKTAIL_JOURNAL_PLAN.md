@@ -535,7 +535,7 @@ CREATE TABLE ingredient_reference (
 **Goal:** Attach photos to recipes, stored in R2.
 
 - [x] R2 bucket creation and binding to Worker
-- [ ] Presigned URL upload flow (Worker generates a presigned R2 URL → frontend uploads directly to R2)
+- [x] Presigned URL upload flow (Worker generates a presigned R2 URL → frontend uploads directly to R2)
 - [x] Store R2 key in `recipe_images` table
 - [x] Display primary image on recipe cards and detail view
 - [x] Support multiple images per recipe
@@ -547,23 +547,23 @@ CREATE TABLE ingredient_reference (
 ### Phase 4 — Recipe Templates & Riffs
 **Goal:** Seed canonical cocktail templates and let users mark recipes as riffs.
 
-- [ ] Seed `recipe_templates` table with ~50–100 common cocktail bases (Negroni, Old Fashioned, Martini, Daiquiri, Sour, Collins, Spritz, etc.)
-- [ ] Dropdown on recipe form: "This is a riff on…" → links `template_id` to a canonical template
+- [x] Seed `recipe_templates` table with ~50–100 common cocktail bases (Negroni, Old Fashioned, Martini, Daiquiri, Sour, Collins, Spritz, etc.)
+- [x] Dropdown on recipe form: "This is a riff on…" → links `template_id` to a canonical template
 - [x] Template detail page showing the canonical recipe and all public riffs from the community
 - [x] "Start from template" flow: pre-fills recipe form from the canonical values (same UX as "Create riff of" in Phase 2, but sourced from `recipe_templates` rather than a user recipe)
 - [x] Canonical templates also display community stats: number of riffs, average rating across all riffs
 
 ---
 
-### Phase 5 — Friends & Social Discovery
+### Phase 5 — Friends & Social Discovery ✅
 **Goal:** Friends system and recipe sharing between users.
 
-- [ ] Search users by display name or email
-- [ ] Send / accept / reject friend requests
-- [ ] Friends list page
-- [ ] Friend recipes feed (public recipes from friends)
-- [ ] Recipe visibility: private / friends-only / public (update DB column)
-- [ ] Search public recipes across all users (full-text search via D1 FTS5)
+- [x] Search users by display name or email
+- [x] Send / accept / reject friend requests
+- [x] Friends list page
+- [x] Friend recipes feed (public recipes from friends)
+- [x] Recipe visibility: private / friends-only / public (update DB column)
+- [x] Search public recipes across all users (full-text search via D1 FTS5)
 
 ---
 
@@ -578,8 +578,8 @@ CREATE TABLE ingredient_reference (
 
 ---
 
-### Phase 7 — Ingredient Inventory & "What Can I Make"
-**Goal:** Users maintain a home bar ingredient list and discover makeable recipes.
+### Phase 7 — Ingredient Inventory, Discovery & Bartender Tools
+**Goal:** Users maintain a home bar ingredient list and discover makeable recipes. Includes guided cocktail discovery tools.
 
 - [ ] **Ingredient reference DB**: seed `ingredient_reference` with a curated list of common spirits, liqueurs, mixers, bitters, syrups, etc. — each with ABV, flavor notes, category, and description
 - [ ] Autocomplete in recipe ingredient forms backed by `ingredient_reference` (fuzzy search)
@@ -590,6 +590,23 @@ CREATE TABLE ingredient_reference (
 - [ ] "Missing ingredient" list: what to buy to unlock the most new recipes
 - [x] **Want to make**: flag any recipe as "want to make" (`want_to_make = 1`)
 - [ ] **Shopping list**: generate a consolidated shopping list of all ingredients you're missing across all "want to make" flagged recipes (deduped, sorted by how many recipes they unblock)
+
+#### Bartender's Choice
+The app acts as the bartender — user picks a mood, the app picks the drink.
+
+- [ ] Present a bank of flavor/mood descriptors (e.g., citrusy, boozy, smoky, refreshing, bitter, tropical, cozy, floral, spirit-forward, low ABV, etc.)
+- [ ] User selects 2–3 descriptors
+- [ ] App queries templates and public recipes whose tags, flavor notes, or descriptions match the selected descriptors, ranked by match count and avg rating
+- [ ] Results shown as "suggestions" with a one-line rationale (e.g., "Matches: citrusy, refreshing")
+- [ ] User can tap any suggestion to view the full recipe or start a riff
+
+#### Spirit + Modifier Finder
+A quick builder tool: pick a base spirit and a modifier, see what cocktails they anchor.
+
+- [ ] Two-step UI: first pick a base spirit (bourbon, gin, rum, mezcal, vodka, tequila, brandy, etc.), then pick a modifier type (vermouth, amaro, citrus, syrup, bitter, liqueur, etc.)
+- [ ] App queries templates and public recipes whose ingredients include both the selected spirit family and the modifier family (using the synonym expansion already built into search)
+- [ ] Results sorted by popularity (riff count + avg rating)
+- [ ] Optionally filter results to only cocktails makeable from the user's current inventory
 
 ---
 

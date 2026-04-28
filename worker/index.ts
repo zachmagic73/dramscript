@@ -3,10 +3,14 @@ import { initiateGoogleLogin, handleCallback, handleLogout, handleMe } from './a
 import { updateUser } from './users';
 import {
   listRecipes, getRecipe, createRecipe, updateRecipe, deleteRecipe,
-  getRecipeVersions, getVersionSnapshot, getRiff, restoreVersion,
+  getRecipeVersions, getVersionSnapshot, getRiff, restoreVersion, searchPublicRecipes,
 } from './recipes';
-import { uploadImage, serveImage, deleteImage, setPrimaryImage } from './images';
+import { uploadImageViaWorker, presignImageUpload, finalizeImageUpload, serveImage, deleteImage, setPrimaryImage } from './images';
 import { listTemplates, getTemplate, startFromTemplate } from './templates';
+import {
+  searchUsers, sendFriendRequest, acceptFriendRequest, rejectFriendRequest,
+  listPendingFriendRequests, listAcceptedFriendships, deleteFriendship,
+} from './friends';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -50,9 +54,17 @@ export default {
     if (snapshotMatch && method === 'POST') return restoreVersion(request, env, snapshotMatch[1]);
 
     // ── Images ────────────────────────────────────────────────────────────────
-    // POST /api/recipes/:id/images  — upload (body is raw image)
-    const uploadMatch = pathname.match(/^\/api\/recipes\/([^/]+)\/images$/);
-    if (uploadMatch && method === 'POST') return uploadImage(request, env, uploadMatch[1]);
+    // POST /api/recipes/:id/images (direct worker upload; useful fallback in local dev)
+    const imageUploadMatch = pathname.match(/^\/api\/recipes\/([^/]+)\/images$/);
+    if (imageUploadMatch && method === 'POST') return uploadImageViaWorker(request, env, imageUploadMatch[1]);
+
+    // POST /api/recipes/:id/images/presign
+    const imagePresignMatch = pathname.match(/^\/api\/recipes\/([^/]+)\/images\/presign$/);
+    if (imagePresignMatch && method === 'POST') return presignImageUpload(request, env, imagePresignMatch[1]);
+
+    // POST /api/recipes/:id/images/finalize
+    const imageFinalizeMatch = pathname.match(/^\/api\/recipes\/([^/]+)\/images\/finalize$/);
+    if (imageFinalizeMatch && method === 'POST') return finalizeImageUpload(request, env, imageFinalizeMatch[1]);
 
     // /api/images/:r2key*  — serve image (key may contain slashes)
     if (pathname.startsWith('/api/images/') && method === 'GET') {
@@ -81,6 +93,42 @@ export default {
     // /api/templates/:id/start
     const templateStartMatch = pathname.match(/^\/api\/templates\/([^/]+)\/start$/);
     if (templateStartMatch && method === 'GET') return startFromTemplate(request, env, templateStartMatch[1]);
+
+    // ── Public Recipes Search ─────────────────────────────────────────────────
+    if (pathname === '/api/recipes/public/search' && method === 'GET') return searchPublicRecipes(request, env);
+
+    // ── Friends & Social ──────────────────────────────────────────────────────
+    // User search
+    if (pathname === '/api/users/search' && method === 'GET') return searchUsers(request, env);
+
+    // Send friend request
+    if (pathname === '/api/friendships' && method === 'POST') return sendFriendRequest(request, env);
+
+    // List pending requests
+    if (pathname === '/api/friendships/pending' && method === 'GET') return listPendingFriendRequests(request, env);
+
+    // List accepted friendships
+    if (pathname === '/api/friendships/accepted' && method === 'GET') return listAcceptedFriendships(request, env);
+
+    // Accept/reject/delete friendship
+    const friendshipMatch = pathname.match(/^\/api\/friendships\/([^/]+)$/);
+    if (friendshipMatch) {
+      const [, friendshipId] = friendshipMatch;
+      if (pathname.endsWith('/accept') && method === 'PATCH') {
+        return acceptFriendRequest(request, env, friendshipId.replace('/accept', ''));
+      }
+      if (pathname.endsWith('/reject') && method === 'PATCH') {
+        return rejectFriendRequest(request, env, friendshipId.replace('/reject', ''));
+      }
+      if (method === 'DELETE') return deleteFriendship(request, env, friendshipId);
+    }
+
+    // Accept/reject via different routes
+    const acceptMatch = pathname.match(/^\/api\/friendships\/([^/]+)\/accept$/);
+    if (acceptMatch && method === 'PATCH') return acceptFriendRequest(request, env, acceptMatch[1]);
+
+    const rejectMatch = pathname.match(/^\/api\/friendships\/([^/]+)\/reject$/);
+    if (rejectMatch && method === 'PATCH') return rejectFriendRequest(request, env, rejectMatch[1]);
 
     // ── SPA Fallback ──────────────────────────────────────────────────────────
     return env.ASSETS.fetch(request);

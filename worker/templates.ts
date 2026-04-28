@@ -1,5 +1,6 @@
 import type { Env } from './types';
 import { requireAuth, json, notFound } from './middleware';
+import { sqlFold, expandSearchTerms } from './search-utils';
 
 type DbRow = Record<string, unknown>;
 
@@ -17,9 +18,15 @@ export async function listTemplates(request: Request, env: Env): Promise<Respons
   }
 
   if (search) {
-    where.push('(t.name LIKE ? OR t.description LIKE ? OR t.canonical_json LIKE ?)');
-    const like = `%${search}%`;
-    params.push(like, like, like);
+    const terms = expandSearchTerms(search);
+    const termClauses = terms
+      .map(() => `(${sqlFold('t.name')} LIKE ? OR ${sqlFold('t.description')} LIKE ?)`)
+      .join(' OR ');
+    where.push(`(${termClauses})`);
+    for (const term of terms) {
+      const like = `%${term}%`;
+      params.push(like, like);
+    }
   }
 
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
@@ -28,6 +35,7 @@ export async function listTemplates(request: Request, env: Env): Promise<Respons
     .prepare(`
       SELECT
         t.id, t.name, t.description, t.base_type,
+        MAX(t.canonical_json) AS canonical_json,
         COUNT(r.id) AS riff_count,
         ROUND(AVG(rr.rating), 1) AS avg_rating
       FROM recipe_templates t
@@ -38,9 +46,27 @@ export async function listTemplates(request: Request, env: Env): Promise<Respons
       ORDER BY t.name ASC
     `)
     .bind(...params)
-    .all<DbRow>();
+    .all<DbRow & { canonical_json: string | null }>();
 
-  return json({ templates: templates.results });
+  const results = templates.results.map((t) => {
+    let canonical: { ingredients?: { name: string; amount?: number; unit?: string }[] } | null = null;
+    try {
+      canonical = t.canonical_json ? JSON.parse(t.canonical_json as string) : null;
+    } catch {
+      // malformed canonical_json — skip ingredients for this template
+    }
+    return {
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      base_type: t.base_type,
+      riff_count: t.riff_count,
+      avg_rating: t.avg_rating,
+      ingredients: canonical?.ingredients?.map((i) => i.name) ?? [],
+    };
+  });
+
+  return json({ templates: results });
 }
 
 export async function getTemplate(request: Request, env: Env, id: string): Promise<Response> {

@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
-  Box, Typography, TextField, Select, MenuItem, FormControl,
-  Button, Switch, FormControlLabel, Chip, Autocomplete, Alert,
+  Box, Typography, TextField, Select, MenuItem, FormControl, InputLabel,
+  Button, Chip, Autocomplete, Alert,
   CircularProgress, Divider, IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import LinkIcon from '@mui/icons-material/Link';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
   type DragEndEvent,
@@ -28,14 +28,24 @@ import { ICON_COUNT, resolvePlaceholderIcon } from '../utils/cocktailIcons';
 function SortableIngredientRow({
   ing,
   onChange,
+  onChangeRef,
   onRemove,
+  allRecipes,
 }: {
   ing: RecipeFormValues['ingredients'][number];
   onChange: (field: string, value: string) => void;
+  onChangeRef: (recipeId: string | null) => void;
   onRemove: () => void;
+  allRecipes: Array<{ id: string; name: string; type: string }>;
 }) {
+  const [showRefDropdown, setShowRefDropdown] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: ing.id });
+
+  // Filter recipes for reference (syrups, bitters, tinctures, shrubs, but not the current recipe being edited)
+  const validReferenceRecipes = allRecipes.filter(
+    (r) => ['syrup', 'bitter', 'tincture', 'shrub'].includes(r.type)
+  );
 
   return (
     <Box
@@ -43,8 +53,13 @@ function SortableIngredientRow({
       sx={{
         display: 'flex',
         gap: 1,
-        alignItems: { xs: 'flex-start', sm: 'center' },
+        alignItems: { xs: 'flex-start', sm: 'flex-start' },
         mb: 1,
+        p: 1.5,
+        bgcolor: 'background.paper',
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 1,
         opacity: isDragging ? 0.5 : 1,
         transform: CSS.Transform.toString(transform),
         transition,
@@ -56,14 +71,14 @@ function SortableIngredientRow({
 
       <Box sx={{ flex: 1, minWidth: 0 }}>
         {/* Desktop/tablet: single-line layout */}
-        <Box sx={{ display: { xs: 'none', sm: 'flex' }, gap: 1, alignItems: 'center' }}>
+        <Box sx={{ display: { xs: 'none', sm: 'flex' }, gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
           <TextField
             size="small" placeholder="Amount" value={ing.amount}
             onChange={(e) => onChange('amount', e.target.value)}
-            sx={{ width: 90 }}
+            sx={{ width: 80 }}
             slotProps={{ htmlInput: { type: 'number', min: 0, step: 0.25 } }}
           />
-          <FormControl size="small" sx={{ width: 110 }}>
+          <FormControl size="small" sx={{ width: 100 }}>
             <Select value={ing.unit} onChange={(e) => onChange('unit', e.target.value)} displayEmpty>
               <MenuItem value=""><em>unit</em></MenuItem>
               {UNITS.map((u) => <MenuItem key={u.value} value={u.value}>{u.label}</MenuItem>)}
@@ -72,7 +87,7 @@ function SortableIngredientRow({
           <TextField
             size="small" placeholder="Ingredient name" value={ing.name}
             onChange={(e) => onChange('name', e.target.value)}
-            sx={{ flex: 1 }}
+            sx={{ flex: 1, minWidth: 150 }}
           />
         </Box>
 
@@ -82,10 +97,10 @@ function SortableIngredientRow({
             <TextField
               size="small" placeholder="Amount" value={ing.amount}
               onChange={(e) => onChange('amount', e.target.value)}
-              sx={{ width: 110 }}
+              sx={{ width: 100 }}
               slotProps={{ htmlInput: { type: 'number', min: 0, step: 0.25 } }}
             />
-            <FormControl size="small" sx={{ width: 130 }}>
+            <FormControl size="small" sx={{ flex: 1 }}>
               <Select value={ing.unit} onChange={(e) => onChange('unit', e.target.value)} displayEmpty>
                 <MenuItem value=""><em>unit</em></MenuItem>
                 {UNITS.map((u) => <MenuItem key={u.value} value={u.value}>{u.label}</MenuItem>)}
@@ -100,11 +115,44 @@ function SortableIngredientRow({
             onChange={(e) => onChange('name', e.target.value)}
           />
         </Box>
+
+        {/* Recipe reference dropdown (only when link button clicked) */}
+        {showRefDropdown && (
+          <FormControl fullWidth size="small" sx={{ mt: 1 }}>
+            <Select
+              value={ing.referenced_recipe_id ?? ''}
+              onChange={(e) => {
+                onChangeRef(e.target.value || null);
+                setShowRefDropdown(false);
+              }}
+              displayEmpty
+            >
+              <MenuItem value=""><em>No recipe ref</em></MenuItem>
+              {validReferenceRecipes.map((r) => (
+                <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
       </Box>
 
-      <IconButton size="small" color="error" onClick={onRemove} sx={{ mt: { xs: 0.5, sm: 0 } }}>
-        <DeleteIcon fontSize="small" />
-      </IconButton>
+      {/* Link and Delete buttons */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'center' }}>
+        {validReferenceRecipes.length > 0 && (
+          <Tooltip title={ing.referenced_recipe_id ? 'Update recipe link' : 'Link to a recipe'}>
+            <IconButton
+              size="small"
+              onClick={() => setShowRefDropdown(!showRefDropdown)}
+              color={ing.referenced_recipe_id ? 'primary' : 'inherit'}
+            >
+              <LinkIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
+        <IconButton size="small" color="error" onClick={onRemove}>
+          <DeleteIcon fontSize="small" />
+        </IconButton>
+      </Box>
     </Box>
   );
 }
@@ -156,7 +204,7 @@ function SortableStepRow({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function emptyIng() {
-  return { id: crypto.randomUUID(), name: '', amount: '', unit: '' };
+  return { id: crypto.randomUUID(), name: '', amount: '', unit: '', referenced_recipe_id: null };
 }
 
 function emptyStep() {
@@ -175,6 +223,7 @@ function recipeToPrefill(r: Recipe): Partial<RecipeFormValues> {
     difficulty: r.difficulty ?? '',
     tags: r.tags ?? [],
     is_public: Boolean(r.is_public),
+    visibility: r.visibility ?? 'private',
     want_to_make: Boolean(r.want_to_make),
     placeholder_icon: r.placeholder_icon ?? null,
     template_id: r.template_id ?? null,
@@ -185,13 +234,14 @@ function recipeToPrefill(r: Recipe): Partial<RecipeFormValues> {
       name: i.name,
       amount: i.amount != null ? String(i.amount) : '',
       unit: i.unit ?? '',
+      referenced_recipe_id: i.referenced_recipe_id ?? null,
     })) ?? [],
     steps: r.steps?.map((s) => ({ id: crypto.randomUUID(), description: s.description })) ?? [],
   };
 }
 
 const COMMON_TAGS = [
-  'citrusy', 'herbal', 'boozy', 'bitter', 'sweet', 'smoky', 'tropical',
+  'citrusy', 'herbal', 'boozy', 'bitter', 'sweet', 'smoky', 'spicy', 'tropical',
   'sour', 'refreshing', 'spirit-forward', 'low-ABV', 'brunch', 'holiday',
   'poolside', 'date night', 'winter', 'summer',
 ];
@@ -200,7 +250,7 @@ const COMMON_TAGS = [
 const DEFAULT_VALUES: RecipeFormValues = {
   name: '', type: 'cocktail', glass_type: '', ice_type: '', method: '',
   garnish: '', notes: '', difficulty: '', tags: [],
-  is_public: false, want_to_make: true, placeholder_icon: null,
+  is_public: false, visibility: 'private', want_to_make: true, placeholder_icon: null,
   template_id: null, source_recipe_id: null,
   servings: 1,
   ingredients: [emptyIng()],
@@ -219,12 +269,36 @@ export default function RecipeForm() {
   const [error, setError] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [templates, setTemplates] = useState<Array<{ id: string; name: string }>>([]);
+  const [allRecipes, setAllRecipes] = useState<Array<{ id: string; name: string; type: string }>>([]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   // Load existing recipe for edit, or apply prefill (riff / template)
   useEffect(() => {
     const prefill = (location.state as { prefill?: Recipe } | null)?.prefill;
+
+    // Load templates and all recipes for dropdowns
+    void Promise.all([
+      fetch('/api/templates').then((r) => r.json()),
+      fetch('/api/recipes?all=true').then((r) => r.json()),
+    ])
+      .then(([tplData, recipeData]) => {
+        setTemplates(
+          (tplData.templates || []).map((t: { id: string; name: string }) => ({
+            id: t.id,
+            name: t.name,
+          }))
+        );
+        setAllRecipes(
+          (recipeData.recipes || []).map((r: { id: string; name: string; type: string }) => ({
+            id: r.id,
+            name: r.name,
+            type: r.type,
+          }))
+        );
+      })
+      .catch((err) => console.error('Failed to load templates/recipes:', err));
 
     if (isEdit && id) {
       void (async () => {
@@ -248,6 +322,13 @@ export default function RecipeForm() {
     setValues((v) => {
       const ings = [...v.ingredients];
       ings[idx] = { ...ings[idx], [field]: value };
+      return { ...v, ingredients: ings };
+    });
+
+  const updateIngRef = (idx: number, recipeId: string | null) =>
+    setValues((v) => {
+      const ings = [...v.ingredients];
+      ings[idx] = { ...ings[idx], referenced_recipe_id: recipeId };
       return { ...v, ingredients: ings };
     });
 
@@ -303,6 +384,7 @@ export default function RecipeForm() {
             name: i.name,
             amount: i.amount !== '' ? parseFloat(i.amount) : null,
             unit: i.unit || null,
+            referenced_recipe_id: i.referenced_recipe_id || null,
           })),
         steps: values.steps
           .filter((s) => s.description.trim())
@@ -365,6 +447,16 @@ export default function RecipeForm() {
         fullWidth required label="Recipe name" value={values.name}
         onChange={(e) => set('name', e.target.value)} sx={{ mb: 2 }}
       />
+
+      <TextField
+        select label="Template (optional)" value={values.template_id ?? ''} size="small"
+        onChange={(e) => set('template_id', e.target.value || null)}
+        sx={{ minWidth: 200, mb: 2 }}
+        helperText="Link this recipe to a canonical template (e.g., Negroni, Daiquiri)"
+      >
+        <MenuItem value=""><em>No template</em></MenuItem>
+        {templates.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+      </TextField>
 
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
         <TextField
@@ -441,19 +533,20 @@ export default function RecipeForm() {
         sx={{ mb: 2 }}
       />
 
-      {/* ── Visibility toggles ── */}
-      <Box sx={{ display: 'flex', gap: 3, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-        <FormControlLabel
-          control={<Switch checked={values.is_public} onChange={(e) => set('is_public', e.target.checked)} color="primary" />}
-          label={(
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Typography component="span">Public recipe</Typography>
-              <Tooltip title="Public recipes can be viewed and riffed by other users. Your private notes stay on your own journal copy.">
-                <InfoOutlinedIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-              </Tooltip>
-            </Box>
-          )}
-        />
+      {/* ── Visibility control ── */}
+      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel>Visibility</InputLabel>
+          <Select
+            value={values.visibility}
+            onChange={(e) => set('visibility', e.target.value as 'private' | 'friends' | 'public')}
+            label="Visibility"
+          >
+            <MenuItem value="private">Private (just me)</MenuItem>
+            <MenuItem value="friends">Friends only</MenuItem>
+            <MenuItem value="public">Public (everyone)</MenuItem>
+          </Select>
+        </FormControl>
 
         <TextField
           select
@@ -575,7 +668,9 @@ export default function RecipeForm() {
               key={ing.id}
               ing={ing}
               onChange={(field, value) => updateIng(idx, field, value)}
+              onChangeRef={(recipeId) => updateIngRef(idx, recipeId)}
               onRemove={() => removeIng(idx)}
+              allRecipes={allRecipes}
             />
           ))}
         </SortableContext>

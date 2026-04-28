@@ -5,6 +5,8 @@ import { useAuth } from './hooks/useAuth';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import Discover from './pages/Discover';
+import Friends from './pages/Friends';
 import RecipeDetail from './pages/RecipeDetail';
 import RecipeForm from './pages/RecipeForm';
 import Profile from './pages/Profile';
@@ -47,6 +49,8 @@ function AppRoutes() {
         }
       >
         <Route index element={<Dashboard />} />
+        <Route path="discover" element={<Discover />} />
+        <Route path="friends" element={<Friends />} />
         <Route path="recipes/new" element={<RecipeForm />} />
         <Route path="recipes/:id" element={<RecipeDetail />} />
         <Route path="recipes/:id/edit" element={<RecipeForm />} />

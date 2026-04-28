@@ -1,5 +1,6 @@
 import type { Env } from './types';
 import { requireAuth, json, notFound } from './middleware';
+import { sqlFold, expandSearchTerms } from './search-utils';
 
 interface RecipeInput {
   name: string;
@@ -12,12 +13,13 @@ interface RecipeInput {
   difficulty?: string | null;
   tags?: string[];
   is_public?: boolean;
+  visibility?: 'private' | 'friends' | 'public';
   want_to_make?: boolean;
   placeholder_icon?: number | null;
   template_id?: string | null;
   source_recipe_id?: string | null;
   servings?: number;
-  ingredients?: { name: string; amount?: number | null; unit?: string | null }[];
+  ingredients?: { name: string; amount?: number | null; unit?: string | null; referenced_recipe_id?: string | null }[];
   steps?: { description: string }[];
 }
 
@@ -31,8 +33,8 @@ async function insertIngredients(
   for (let i = 0; i < ingredients.length; i++) {
     const ing = ingredients[i];
     await env.dramscript_db
-      .prepare('INSERT INTO ingredients (id, recipe_id, name, amount, unit, order_index) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(crypto.randomUUID(), recipeId, ing.name, ing.amount ?? null, ing.unit ?? null, i)
+      .prepare('INSERT INTO ingredients (id, recipe_id, name, amount, unit, referenced_recipe_id, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(crypto.randomUUID(), recipeId, ing.name, ing.amount ?? null, ing.unit ?? null, ing.referenced_recipe_id ?? null, i)
       .run();
   }
 }
@@ -59,6 +61,16 @@ export async function listRecipes(request: Request, env: Env): Promise<Response>
   const difficulty = url.searchParams.get('difficulty');
   const tag = url.searchParams.get('tag');
   const search = url.searchParams.get('q');
+  const all = url.searchParams.get('all');
+
+  // If requesting all recipes for dropdown, return minimal fields
+  if (all === 'true') {
+    const result = await env.dramscript_db
+      .prepare('SELECT id, name, type FROM recipes WHERE user_id = ? ORDER BY updated_at DESC')
+      .bind(auth.user_id)
+      .all<DbRow>();
+    return json({ recipes: result.results });
+  }
 
   let query = `
     SELECT r.*,
@@ -73,18 +85,23 @@ export async function listRecipes(request: Request, env: Env): Promise<Response>
   if (difficulty) { query += ' AND r.difficulty = ?'; params.push(difficulty); }
   if (tag) { query += ' AND r.tags LIKE ?'; params.push(`%"${tag}"%`); }
   if (search) {
-    query += `
-      AND (
-        r.name LIKE ?
-        OR r.notes LIKE ?
+    const terms = expandSearchTerms(search);
+    const termClauses = terms
+      .map(() => `(
+        ${sqlFold('r.name')} LIKE ?
+        OR ${sqlFold('r.notes')} LIKE ?
         OR EXISTS (
           SELECT 1 FROM ingredients i
           WHERE i.recipe_id = r.id
-            AND i.name LIKE ?
+            AND ${sqlFold('i.name')} LIKE ?
         )
-      )
-    `;
-    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      )`)
+      .join(' OR ');
+    query += ` AND (${termClauses})`;
+    for (const term of terms) {
+      const like = `%${term}%`;
+      params.push(like, like, like);
+    }
   }
   query += ' ORDER BY r.updated_at DESC';
 
@@ -102,11 +119,31 @@ export async function getRecipe(request: Request, env: Env, id: string): Promise
   if (auth instanceof Response) return auth;
 
   const recipe = await env.dramscript_db
-    .prepare('SELECT * FROM recipes WHERE id = ? AND (user_id = ? OR is_public = 1)')
-    .bind(id, auth.user_id)
+    .prepare('SELECT * FROM recipes WHERE id = ?')
+    .bind(id)
     .first<DbRow>();
 
   if (!recipe) return notFound();
+
+  // Check visibility: own recipes are always visible, public recipes are visible to all,
+  // friends-only recipes are visible to friends, private recipes are only for owner
+  if (recipe.user_id !== auth.user_id) {
+    const visibility = (recipe.visibility as string) || 'private';
+    if (visibility === 'private') return notFound();
+    if (visibility === 'friends') {
+      // Check if they are friends
+      const friendship = await env.dramscript_db
+        .prepare(
+          `SELECT id FROM friendships
+           WHERE status = 'accepted'
+           AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))`
+        )
+        .bind(auth.user_id, recipe.user_id, recipe.user_id, auth.user_id)
+        .first();
+      if (!friendship) return notFound();
+    }
+    // visibility === 'public' is always allowed
+  }
 
   const [ingredients, steps, images] = await Promise.all([
     env.dramscript_db.prepare('SELECT * FROM ingredients WHERE recipe_id = ? ORDER BY order_index').bind(id).all(),
@@ -114,11 +151,23 @@ export async function getRecipe(request: Request, env: Env, id: string): Promise
     env.dramscript_db.prepare('SELECT * FROM recipe_images WHERE recipe_id = ? ORDER BY is_primary DESC, created_at ASC').bind(id).all(),
   ]);
 
+  // Fetch referenced recipes for ingredients that have them
+  const ingredientsWithRefs = await Promise.all(
+    ingredients.results.map(async (ing: DbRow) => {
+      if (!ing.referenced_recipe_id) return ing;
+      const refRecipe = await env.dramscript_db
+        .prepare('SELECT id, name, type FROM recipes WHERE id = ?')
+        .bind(ing.referenced_recipe_id)
+        .first<DbRow>();
+      return { ...ing, referencedRecipe: refRecipe ?? null };
+    })
+  );
+
   return json({
     recipe: {
       ...recipe,
       tags: recipe.tags ? JSON.parse(recipe.tags as string) : [],
-      ingredients: ingredients.results,
+      ingredients: ingredientsWithRefs,
       steps: steps.results,
       images: images.results,
     },
@@ -134,19 +183,22 @@ export async function createRecipe(request: Request, env: Env): Promise<Response
 
   const id = crypto.randomUUID();
 
+  const visibility = body.visibility || (body.is_public ? 'public' : 'private');
+
   await env.dramscript_db
     .prepare(`
       INSERT INTO recipes
         (id, user_id, name, type, glass_type, ice_type, method, garnish, notes,
-         difficulty, tags, is_public, want_to_make, placeholder_icon, template_id, source_recipe_id, servings, version)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+         difficulty, tags, is_public, visibility, want_to_make, placeholder_icon, template_id, source_recipe_id, servings, version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `)
     .bind(
       id, auth.user_id, body.name.trim(), body.type ?? 'cocktail',
       body.glass_type ?? null, body.ice_type ?? null, body.method ?? null,
       body.garnish ?? null, body.notes ?? null, body.difficulty ?? null,
       JSON.stringify(body.tags ?? []),
-      body.is_public ? 1 : 0, body.want_to_make ? 1 : 0,
+      body.is_public ? 1 : 0,
+      visibility, body.want_to_make ? 1 : 0,
       body.placeholder_icon ?? null,
       body.template_id ?? null, body.source_recipe_id ?? null,
       body.servings ?? 1,
@@ -192,13 +244,14 @@ export async function updateRecipe(request: Request, env: Env, id: string): Prom
     .run();
 
   const newVersion = recipe.version + 1;
+  const visibility = body.visibility || (body.is_public ? 'public' : 'private');
 
   await env.dramscript_db
     .prepare(`
       UPDATE recipes SET
         name = ?, type = ?, glass_type = ?, ice_type = ?, method = ?,
         garnish = ?, notes = ?, difficulty = ?, tags = ?, is_public = ?,
-        want_to_make = ?, placeholder_icon = ?, servings = ?, version = ?,
+        visibility = ?, want_to_make = ?, placeholder_icon = ?, servings = ?, version = ?,
         updated_at = strftime('%s', 'now')
       WHERE id = ? AND user_id = ?
     `)
@@ -207,7 +260,8 @@ export async function updateRecipe(request: Request, env: Env, id: string): Prom
       body.glass_type ?? null, body.ice_type ?? null, body.method ?? null,
       body.garnish ?? null, body.notes ?? null, body.difficulty ?? null,
       JSON.stringify(body.tags ?? []),
-      body.is_public ? 1 : 0, body.want_to_make ? 1 : 0,
+      body.is_public ? 1 : 0,
+      visibility, body.want_to_make ? 1 : 0,
       body.placeholder_icon ?? null,
       body.servings ?? 1, newVersion,
       id, auth.user_id,
@@ -390,4 +444,85 @@ export async function getRiff(request: Request, env: Env, id: string): Promise<R
       steps: steps.results,
     },
   });
+}
+
+/**
+ * Search public recipes across all users
+ * GET /api/recipes/public/search?q=...&type=...&difficulty=...&limit=20
+ * Also respects friend visibility if authenticated
+ */
+export async function searchPublicRecipes(request: Request, env: Env): Promise<Response> {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+
+  const url = new URL(request.url);
+  const q = url.searchParams.get('q')?.trim();
+  const type = url.searchParams.get('type');
+  const difficulty = url.searchParams.get('difficulty');
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 100);
+
+  // Fetch user's friends to filter visibility
+  const friendsResult = await env.dramscript_db
+    .prepare(
+      `
+      SELECT DISTINCT
+        CASE WHEN requester_id = ? THEN addressee_id ELSE requester_id END AS friend_id
+      FROM friendships
+      WHERE (requester_id = ? OR addressee_id = ?) AND status = 'accepted'
+      `
+    )
+    .bind(auth.user_id, auth.user_id, auth.user_id)
+    .all<DbRow>();
+
+  const friendIds = friendsResult.results.map((r) => r.friend_id as string);
+
+  let query = `
+    SELECT r.*,
+           ri.r2_key AS primary_image,
+           u.display_name, u.avatar_url
+    FROM recipes r
+    LEFT JOIN recipe_images ri ON ri.recipe_id = r.id AND ri.is_primary = 1
+    JOIN users u ON u.id = r.user_id
+    WHERE 
+      (r.visibility = 'public'${friendIds.length > 0
+        ? ` OR (r.visibility = 'friends' AND r.user_id IN (${friendIds.map(() => '?').join(',')}))`
+        : ''}
+      )
+      AND r.user_id != ?
+  `;
+  const params: unknown[] = [...friendIds, auth.user_id];
+
+  if (type) { query += ' AND r.type = ?'; params.push(type); }
+  if (difficulty) { query += ' AND r.difficulty = ?'; params.push(difficulty); }
+
+  if (q) {
+    const terms = expandSearchTerms(q);
+    const termClauses = terms
+      .map(() => `(
+        ${sqlFold('r.name')} LIKE ?
+        OR ${sqlFold('r.notes')} LIKE ?
+        OR EXISTS (
+          SELECT 1 FROM ingredients i
+          WHERE i.recipe_id = r.id
+            AND ${sqlFold('i.name')} LIKE ?
+        )
+      )`)
+      .join(' OR ');
+    query += ` AND (${termClauses})`;
+    for (const term of terms) {
+      const like = `%${term}%`;
+      params.push(like, like, like);
+    }
+  }
+
+  query += ' ORDER BY r.updated_at DESC LIMIT ?';
+  params.push(limit);
+
+  const result = await env.dramscript_db.prepare(query).bind(...params).all<DbRow>();
+  const recipes = result.results.map((r) => ({
+    ...r,
+    tags: r.tags ? JSON.parse(r.tags as string) : [],
+  }));
+
+  return json({ recipes });
 }

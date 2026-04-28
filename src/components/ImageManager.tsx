@@ -16,10 +16,19 @@ interface ImageManagerProps {
   onUpdate: (images: RecipeImage[]) => void;
 }
 
+type PresignUploadResponse = {
+  method: 'PUT';
+  upload_url: string;
+  r2_key: string;
+  headers: Record<string, string>;
+  expires_in: number;
+};
+
 export default function ImageManager({ recipeId, images, onClose, onUpdate }: ImageManagerProps) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -28,16 +37,59 @@ export default function ImageManager({ recipeId, images, onClose, onUpdate }: Im
     setUploading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/recipes/${recipeId}/images`, {
+      if (isLocalDev) {
+        const localRes = await fetch(`/api/recipes/${recipeId}/images`, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type },
+          body: file,
+        });
+
+        if (!localRes.ok) {
+          const data = await localRes.json() as { error?: string };
+          throw new Error(data.error ?? 'Upload failed');
+        }
+
+        const newImage = await localRes.json() as RecipeImage;
+        onUpdate([...images, newImage]);
+        return;
+      }
+
+      const presignRes = await fetch(`/api/recipes/${recipeId}/images/presign`, {
         method: 'POST',
-        headers: { 'Content-Type': file.type },
-        body: file,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content_type: file.type, size: file.size }),
       });
-      if (!res.ok) {
-        const data = await res.json() as { error?: string };
+
+      if (!presignRes.ok) {
+        const data = await presignRes.json() as { error?: string };
         throw new Error(data.error ?? 'Upload failed');
       }
-      const newImage = await res.json() as RecipeImage;
+
+      const presigned = await presignRes.json() as PresignUploadResponse;
+
+      const uploadRes = await fetch(presigned.upload_url, {
+        method: presigned.method,
+        headers: presigned.headers,
+        body: file,
+      });
+
+      if (!uploadRes.ok) {
+        const uploadError = await uploadRes.text();
+        throw new Error(uploadError || `Failed to upload image to storage (${uploadRes.status})`);
+      }
+
+      const finalizeRes = await fetch(`/api/recipes/${recipeId}/images/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ r2_key: presigned.r2_key }),
+      });
+
+      if (!finalizeRes.ok) {
+        const data = await finalizeRes.json() as { error?: string };
+        throw new Error(data.error ?? 'Failed to finalize image upload');
+      }
+
+      const newImage = await finalizeRes.json() as RecipeImage;
       onUpdate([...images, newImage]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');

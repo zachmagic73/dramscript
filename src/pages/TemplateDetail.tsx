@@ -133,11 +133,12 @@ const recipe = data.canonical;
               {recipe.ingredients.map((ing, i) => (
                 <Box component="li" key={i} sx={{ mb: 0.5 }}>
                   <Typography variant="body2">
-                    {ing.amount != null && (
+                    {(ing.amount !== null || ing.unit) && (
                       <Box component="span" className="amount">
-                        {formatAmountWithPreference(ing.amount, ing.unit, user?.default_units ?? 'oz')} 
+                        {formatAmountWithPreference(ing.amount, ing.unit, user?.default_units ?? 'oz')}
                       </Box>
                     )}
+                    {(ing.amount !== null || ing.unit) && ' '}
                     {ing.name}
                   </Typography>
                 </Box>

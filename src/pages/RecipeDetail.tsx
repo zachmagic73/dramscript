@@ -226,7 +226,16 @@ export default function RecipeDetail() {
           component="img"
           src={`/api/images/${primaryImage.r2_key}`}
           alt={recipe.name}
-          sx={{ width: '100%', maxHeight: 360, objectFit: 'cover', borderRadius: 2, mb: 3 }}
+          sx={{
+            width: { xs: '100%', sm: 320 },
+            height: { xs: 'auto', sm: 320 },
+            aspectRatio: { xs: 'auto', sm: '1' },
+            objectFit: 'cover',
+            borderRadius: 2,
+            mb: 3,
+            mx: { xs: 0, sm: 'auto' },
+            display: { xs: 'block', sm: 'block' },
+          }}
         />
       )}
 
@@ -267,16 +276,26 @@ export default function RecipeDetail() {
           <Typography variant="h6" gutterBottom>Ingredients</Typography>
           <List dense>
             {recipe.ingredients.map((ing) => (
-              <ListItem key={ing.id} disableGutters sx={{ py: 0.5 }}>
+              <ListItem key={ing.id} disableGutters sx={{ py: 0.5, flexDirection: 'column', alignItems: 'flex-start' }}>
                 <ListItemText
                   primary={
-                    <Box component="span" sx={{ display: 'flex', gap: 1.5, alignItems: 'baseline' }}>
+                    <Box component="span" sx={{ display: 'flex', gap: 1.5, alignItems: 'baseline', flexWrap: 'wrap' }}>
                       {(ing.amount !== null || ing.unit) && (
                         <Typography component="span" className="amount" color="primary.main">
                           {formatAmountWithPreference(ing.amount, ing.unit, user?.default_units ?? 'oz')}
                         </Typography>
                       )}
                       <Typography component="span">{ing.name}</Typography>
+                      {(ing as any).referenced_recipe_id && (ing as any).referencedRecipe && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => navigate(`/recipes/${(ing as any).referencedRecipe.id}`)}
+                          sx={{ textTransform: 'none', ml: 'auto' }}
+                        >
+                          → {(ing as any).referencedRecipe.name}
+                        </Button>
+                      )}
                     </Box>
                   }
                 />

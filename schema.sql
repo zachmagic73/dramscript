@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at    INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_display_name ON users(display_name);
+
 -- Sessions (backup; primary lookup in KV)
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,
@@ -48,6 +51,7 @@ CREATE TABLE IF NOT EXISTS recipes (
   tags             TEXT DEFAULT '[]',
   version          INTEGER DEFAULT 1,
   is_public        INTEGER DEFAULT 0,
+  visibility       TEXT DEFAULT 'private',
   want_to_make     INTEGER DEFAULT 0,
   placeholder_icon INTEGER,
   template_id      TEXT,
@@ -63,19 +67,33 @@ CREATE TABLE IF NOT EXISTS recipes (
 CREATE INDEX IF NOT EXISTS idx_recipes_user_id ON recipes(user_id);
 CREATE INDEX IF NOT EXISTS idx_recipes_updated_at ON recipes(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_recipes_is_public ON recipes(is_public);
+CREATE INDEX IF NOT EXISTS idx_recipes_visibility ON recipes(visibility);
+
+-- Full-Text Search for Recipes
+CREATE VIRTUAL TABLE IF NOT EXISTS recipes_fts USING fts5(
+  id UNINDEXED,
+  name,
+  notes,
+  tags UNINDEXED,
+  content=recipes,
+  content_rowid=rowid
+);
 
 -- Recipe Ingredients
 CREATE TABLE IF NOT EXISTS ingredients (
-  id          TEXT PRIMARY KEY,
-  recipe_id   TEXT NOT NULL,
-  name        TEXT NOT NULL,
-  amount      REAL,
-  unit        TEXT,
-  order_index INTEGER NOT NULL DEFAULT 0,
-  FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
+  id                    TEXT PRIMARY KEY,
+  recipe_id             TEXT NOT NULL,
+  name                  TEXT NOT NULL,
+  amount                REAL,
+  unit                  TEXT,
+  referenced_recipe_id  TEXT,
+  order_index           INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE,
+  FOREIGN KEY (referenced_recipe_id) REFERENCES recipes(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_ingredients_recipe_id ON ingredients(recipe_id);
+CREATE INDEX IF NOT EXISTS idx_ingredients_referenced_recipe_id ON ingredients(referenced_recipe_id);
 
 -- Recipe Steps
 CREATE TABLE IF NOT EXISTS steps (
@@ -123,6 +141,10 @@ CREATE TABLE IF NOT EXISTS friendships (
   FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (addressee_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_friendships_requester_status ON friendships(requester_id, status);
+CREATE INDEX IF NOT EXISTS idx_friendships_addressee_status ON friendships(addressee_id, status);
+CREATE INDEX IF NOT EXISTS idx_friendships_status ON friendships(status);
 
 -- Recipe Ratings
 CREATE TABLE IF NOT EXISTS recipe_ratings (

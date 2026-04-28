@@ -10,6 +10,7 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import type { Recipe, RecipeType, Difficulty, RecipeTemplate } from '../types';
 import { RECIPE_TYPES, DIFFICULTIES } from '../types';
 import RecipeCard from '../components/RecipeCard';
+import { getMatchedVia } from '../utils/synonyms';
 
 const ALL = '';
 
@@ -18,6 +19,7 @@ export default function Dashboard() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [templates, setTemplates] = useState<RecipeTemplate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Filters
@@ -36,7 +38,7 @@ export default function Dashboard() {
   ].filter(Boolean).length;
 
   const fetchRecipes = useCallback(async () => {
-    setLoading(true);
+    setFetching(true);
     setError(null);
     try {
       const qs = new URLSearchParams();
@@ -70,6 +72,7 @@ export default function Dashboard() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
+      setFetching(false);
       setLoading(false);
     }
   }, [search, typeFilter, difficultyFilter, tagFilter, templateFilter]);
@@ -106,6 +109,11 @@ export default function Dashboard() {
                   <SearchIcon sx={{ color: 'text.disabled', fontSize: 20 }} />
                 </InputAdornment>
               ),
+              endAdornment: fetching ? (
+                <InputAdornment position="end">
+                  <CircularProgress size={16} color="primary" />
+                </InputAdornment>
+              ) : null,
             },
           }}
           sx={{ minWidth: 220, flex: 1, maxWidth: 480 }}
@@ -256,7 +264,9 @@ export default function Dashboard() {
                 Template Cocktails
               </Typography>
               <Grid container spacing={2}>
-                {templates.map((template) => (
+                {templates.map((template) => {
+                  const matchedVia = getMatchedVia(template.ingredients ?? [], search);
+                  return (
                   <Grid key={template.id} size={{ xs: 12, sm: 6, lg: 4 }}>
                     <Card sx={{ borderRadius: 2 }}>
                       <CardActionArea onClick={() => navigate(`/templates/${template.id}`)}>
@@ -277,15 +287,25 @@ export default function Dashboard() {
                               {template.description}
                             </Typography>
                           )}
-                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                             {template.base_type && <Chip size="small" label={template.base_type} />}
                             <Chip size="small" label={`${template.riff_count ?? 0} riffs`} />
+                            {matchedVia && (
+                              <Chip
+                                size="small"
+                                label={`contains ${matchedVia.toLowerCase()}`}
+                                variant="outlined"
+                                color="primary"
+                                sx={{ fontSize: '0.68rem' }}
+                              />
+                            )}
                           </Box>
                         </CardContent>
                       </CardActionArea>
                     </Card>
                   </Grid>
-                ))}
+                  );
+                })}
               </Grid>
             </>
           )}

@@ -11,6 +11,10 @@
   "observability": {
     "enabled": true
   },
+  "vars": {
+    "R2_ACCOUNT_ID": "9504d9e9e11794b5bdf8eed4cc1f8129",
+    "R2_BUCKET_NAME": "dramscript-images"
+  },
   "d1_databases": [
     {
       "binding": "dramscript_db",
