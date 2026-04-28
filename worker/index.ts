@@ -4,12 +4,13 @@ import { updateUser } from './users';
 import {
   listRecipes, getRecipe, createRecipe, updateRecipe, deleteRecipe,
   getRecipeVersions, getVersionSnapshot, getRiff, restoreVersion, searchPublicRecipes,
+  getSavedRecipe, upsertSavedRecipe, deleteSavedRecipe,
 } from './recipes';
 import { uploadImageViaWorker, presignImageUpload, finalizeImageUpload, serveImage, deleteImage, setPrimaryImage } from './images';
 import { listTemplates, getTemplate, startFromTemplate } from './templates';
 import {
   searchUsers, sendFriendRequest, acceptFriendRequest, rejectFriendRequest,
-  listPendingFriendRequests, listAcceptedFriendships, deleteFriendship,
+  listPendingFriendRequests, listPendingSentInvites, listAcceptedFriendships, deleteFriendship,
 } from './friends';
 
 export default {
@@ -38,6 +39,15 @@ export default {
       if (method === 'GET')    return getRecipe(request, env, id);
       if (method === 'PATCH')  return updateRecipe(request, env, id);
       if (method === 'DELETE') return deleteRecipe(request, env, id);
+    }
+
+    // /api/recipes/:id/saved
+    const savedRecipeMatch = pathname.match(/^\/api\/recipes\/([^/]+)\/saved$/);
+    if (savedRecipeMatch) {
+      const [, id] = savedRecipeMatch;
+      if (method === 'GET') return getSavedRecipe(request, env, id);
+      if (method === 'PUT') return upsertSavedRecipe(request, env, id);
+      if (method === 'DELETE') return deleteSavedRecipe(request, env, id);
     }
 
     // /api/recipes/:id/versions
@@ -106,6 +116,9 @@ export default {
 
     // List pending requests
     if (pathname === '/api/friendships/pending' && method === 'GET') return listPendingFriendRequests(request, env);
+
+    // List pending invites sent by me
+    if (pathname === '/api/friendships/pending-sent' && method === 'GET') return listPendingSentInvites(request, env);
 
     // List accepted friendships
     if (pathname === '/api/friendships/accepted' && method === 'GET') return listAcceptedFriendships(request, env);

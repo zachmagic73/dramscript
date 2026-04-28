@@ -200,6 +200,31 @@ export async function listPendingFriendRequests(request: Request, env: Env): Pro
 }
 
 /**
+ * List pending invites sent by the current user
+ * GET /api/friendships/pending-sent
+ */
+export async function listPendingSentInvites(request: Request, env: Env): Promise<Response> {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+
+  const result = await env.dramscript_db
+    .prepare(
+      `
+      SELECT f.id, f.requester_id, f.addressee_id, f.status, f.created_at,
+             u.display_name, u.avatar_url, u.email
+      FROM friendships f
+      JOIN users u ON u.id = f.addressee_id
+      WHERE f.requester_id = ? AND f.status = 'pending'
+      ORDER BY f.created_at DESC
+      `,
+    )
+    .bind(auth.user_id)
+    .all<DbRow>();
+
+  return json({ invites: result.results });
+}
+
+/**
  * List accepted friendships for the current user
  * GET /api/friendships/accepted
  */

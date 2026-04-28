@@ -15,8 +15,10 @@ export default function Friends() {
   const {
     friends,
     pendingRequests,
+    pendingSentInvites,
     fetchFriends,
     fetchPendingRequests,
+    fetchPendingSentInvites,
     sendFriendRequest,
     acceptFriendRequest,
     rejectFriendRequest,
@@ -30,7 +32,8 @@ export default function Friends() {
   useEffect(() => {
     fetchFriends();
     fetchPendingRequests();
-  }, [fetchFriends, fetchPendingRequests]);
+    fetchPendingSentInvites();
+  }, [fetchFriends, fetchPendingRequests, fetchPendingSentInvites]);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const q = e.target.value;
@@ -161,6 +164,33 @@ export default function Friends() {
           <Typography variant="h6" sx={{ mb: 2 }}>
             Friends ({friends.length})
           </Typography>
+
+          {pendingSentInvites.length > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle1" sx={{ mb: 1.5 }}>
+                Pending Invites ({pendingSentInvites.length})
+              </Typography>
+              <Grid container spacing={2}>
+                {pendingSentInvites.map((invite) => (
+                  <Grid key={invite.id} size={{ xs: 12 }}>
+                    <Card variant="outlined" sx={{ display: 'flex', alignItems: 'center', p: 1.5 }}>
+                      <Avatar src={invite.avatar_url || undefined} sx={{ mr: 1.5 }} />
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="subtitle2">{invite.display_name}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {invite.email}
+                        </Typography>
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Awaiting response
+                      </Typography>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          )}
+
           {friends.length === 0 ? (
             <Alert severity="info">No friends yet. Search above to start adding friends!</Alert>
           ) : (

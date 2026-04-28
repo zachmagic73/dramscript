@@ -4,7 +4,7 @@ export type RecipeType = 'cocktail' | 'syrup' | 'bitter' | 'tincture' | 'shrub' 
 export type IceType = 'none' | 'cubed' | 'large_cube' | 'crushed' | 'cracked' | 'sphere';
 export type RecipeMethod = 'stirred' | 'shaken' | 'built' | 'blended' | 'thrown' | 'batch';
 export type Difficulty = 'easy' | 'medium' | 'hard';
-export type Unit = 'oz' | 'ml' | 'dash' | 'barspoon' | 'tsp' | 'tbsp' | 'cup';
+export type Unit = 'oz' | 'ml' | 'dash' | 'barspoon' | 'tsp' | 'tbsp' | 'cup' | 'pinch';
 export type RecipeVisibility = 'private' | 'friends' | 'public';
 
 export interface User {
@@ -73,6 +73,10 @@ export interface Recipe {
   // For discovered recipes
   display_name?: string;
   avatar_url?: string | null;
+  // Per-user saved state for discovered recipes
+  saved_status?: 'want_to_make' | 'made' | null;
+  saved_personal_notes?: string | null;
+  saved_at?: number | null;
 }
 
 export interface RecipeVersion {
@@ -194,6 +198,7 @@ export const UNITS: { value: string; label: string }[] = [
   { value: 'tsp',      label: 'tsp'      },
   { value: 'tbsp',     label: 'tbsp'     },
   { value: 'cup',      label: 'cup'      },
+  { value: 'pinch',    label: 'pinch'    },
 ];
 
 export const GLASS_TYPES: { value: string; label: string }[] = [

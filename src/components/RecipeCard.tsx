@@ -1,4 +1,4 @@
-import { Card, CardActionArea, CardContent, CardMedia, Box, Typography, Chip, Avatar } from '@mui/material';
+import { Card, CardActionArea, CardContent, CardMedia, Box, Typography, Chip } from '@mui/material';
 import type { Recipe } from '../types';
 import CocktailSpritePlaceholder from './CocktailSpritePlaceholder';
 import { resolvePlaceholderIcon } from '../utils/cocktailIcons';
@@ -14,17 +14,21 @@ const DIFFICULTY_COLOR: Record<string, 'success' | 'warning' | 'error'> = {
   hard:   'error',
 };
 
+const PREP_RECIPE_TYPES = new Set(['syrup', 'bitter', 'tincture', 'shrub']);
+
 interface RecipeCardProps {
   recipe: Recipe;
   onClick?: () => void;
   showCreator?: boolean;
+  suppressPrepTypeIcons?: boolean;
 }
 
-export default function RecipeCard({ recipe, onClick, showCreator }: RecipeCardProps) {
+export default function RecipeCard({ recipe, onClick, showCreator, suppressPrepTypeIcons = false }: RecipeCardProps) {
   const imageUrl = recipe.primary_image
     ? `/api/images/${recipe.primary_image}`
     : null;
   const placeholderIcon = resolvePlaceholderIcon(recipe, recipe.placeholder_icon);
+  const suppressPlaceholderIcon = suppressPrepTypeIcons && PREP_RECIPE_TYPES.has(recipe.type);
 
   return (
     <Card>
@@ -37,6 +41,25 @@ export default function RecipeCard({ recipe, onClick, showCreator }: RecipeCardP
               alt={recipe.name}
               sx={{ width: 110, height: 110, objectFit: 'cover', flexShrink: 0 }}
             />
+          ) : suppressPlaceholderIcon ? (
+            <Box
+              sx={{
+                width: 110,
+                height: 110,
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: 'action.hover',
+                borderRight: '1px solid',
+                borderColor: 'divider',
+                p: 1,
+              }}
+            >
+              <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize', textAlign: 'center' }}>
+                {recipe.type}
+              </Typography>
+            </Box>
           ) : (
             <CocktailSpritePlaceholder
               seed={`${recipe.id}:${recipe.name}`}
@@ -96,10 +119,11 @@ export default function RecipeCard({ recipe, onClick, showCreator }: RecipeCardP
 
           {/* Creator info (for discovered recipes) */}
           {showCreator && recipe.display_name && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
-              <Avatar src={recipe.avatar_url || undefined} sx={{ width: 24, height: 24 }} />
+            <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
               <Typography variant="caption" color="text.secondary">
-                {recipe.display_name}
+                {recipe.type === 'other'
+                  ? `By ${recipe.display_name}`
+                  : `A ${recipe.type} by ${recipe.display_name}`}
               </Typography>
             </Box>
           )}

@@ -184,11 +184,16 @@ CREATE TABLE IF NOT EXISTS saved_recipes (
   id        TEXT PRIMARY KEY,
   user_id   TEXT NOT NULL,
   recipe_id TEXT NOT NULL,
+  status    TEXT NOT NULL DEFAULT 'want_to_make',
+  personal_notes TEXT,
   saved_at  INTEGER DEFAULT (strftime('%s', 'now')),
   UNIQUE (user_id, recipe_id),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_saved_recipes_user_id ON saved_recipes(user_id);
+CREATE INDEX IF NOT EXISTS idx_saved_recipes_recipe_id ON saved_recipes(recipe_id);
 
 -- Bar Menus
 CREATE TABLE IF NOT EXISTS bar_menus (

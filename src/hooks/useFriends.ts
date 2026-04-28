@@ -4,6 +4,7 @@ import type { FriendRequest, Friendship } from '../types';
 export function useFriends() {
   const [friends, setFriends] = useState<Friendship[]>([]);
   const [pendingRequests, setPendingRequests] = useState<FriendRequest[]>([]);
+  const [pendingSentInvites, setPendingSentInvites] = useState<FriendRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,6 +40,22 @@ export function useFriends() {
     }
   }, []);
 
+  const fetchPendingSentInvites = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/friendships/pending-sent');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = (await response.json()) as { invites: FriendRequest[] };
+      setPendingSentInvites(data.invites || []);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to fetch sent invites';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const sendFriendRequest = useCallback(async (addresseeId: string) => {
     try {
       const response = await fetch('/api/friendships', {
@@ -50,13 +67,14 @@ export function useFriends() {
         const err = (await response.json()) as { error?: string };
         throw new Error(err.error || `HTTP ${response.status}`);
       }
+      await fetchPendingSentInvites();
       return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to send request';
       setError(msg);
       return false;
     }
-  }, []);
+  }, [fetchPendingSentInvites]);
 
   const acceptFriendRequest = useCallback(async (friendshipId: string) => {
     try {
@@ -109,10 +127,12 @@ export function useFriends() {
   return {
     friends,
     pendingRequests,
+    pendingSentInvites,
     loading,
     error,
     fetchFriends,
     fetchPendingRequests,
+    fetchPendingSentInvites,
     sendFriendRequest,
     acceptFriendRequest,
     rejectFriendRequest,

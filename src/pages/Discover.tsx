@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Grid2 as Grid, TextField, Select, MenuItem, FormControl,
-  InputLabel, CircularProgress, Alert, InputAdornment,
+  InputLabel, CircularProgress, Alert, InputAdornment, Chip,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import type { Recipe, RecipeType, Difficulty } from '../types';
@@ -130,10 +130,19 @@ export default function Discover() {
           <Grid container spacing={2}>
             {recipes.map((recipe) => (
               <Grid key={recipe.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
-                <Box
-                  onClick={() => handleRecipeClick(recipe.id)}
-                  sx={{ cursor: 'pointer', height: '100%' }}>
+                <Box sx={{ cursor: 'pointer', height: '100%' }}>
+                  {recipe.saved_status && (
+                    <Box sx={{ mb: 1 }}>
+                      <Chip
+                        size="small"
+                        color={recipe.saved_status === 'made' ? 'success' : 'warning'}
+                        label={recipe.saved_status === 'made' ? 'In My Journal • Made' : 'In My Journal • Want To Make'}
+                      />
+                    </Box>
+                  )}
+                  <Box onClick={() => handleRecipeClick(recipe.id)}>
                   <RecipeCard recipe={recipe} showCreator={true} />
+                  </Box>
                 </Box>
               </Grid>
             ))}

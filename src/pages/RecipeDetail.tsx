@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Chip, Button, Divider, IconButton, Dialog,
   DialogTitle, DialogContent, DialogActions, Alert, CircularProgress,
   List, ListItem, ListItemText, Tooltip, Paper, Menu, MenuItem, useMediaQuery, useTheme,
+  ToggleButtonGroup, ToggleButton, TextField,
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -46,6 +47,12 @@ export default function RecipeDetail() {
   const [versions, setVersions] = useState<RecipeVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [previewSnapshot, setPreviewSnapshot] = useState<Recipe | null>(null);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [savedStatus, setSavedStatus] = useState<'want_to_make' | 'made' | null>(null);
+  const [savedNotes, setSavedNotes] = useState('');
+  const [notesDirty, setNotesDirty] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -56,6 +63,9 @@ export default function RecipeDetail() {
         if (!res.ok) throw new Error('Not found');
         const data = await res.json() as { recipe: Recipe };
         setRecipe(data.recipe);
+        setSavedStatus(data.recipe.saved_status ?? null);
+        setSavedNotes(data.recipe.saved_personal_notes ?? '');
+        setNotesDirty(false);
       } catch {
         setError('Recipe not found.');
       } finally {
@@ -76,6 +86,94 @@ export default function RecipeDetail() {
     if (!res.ok) return;
     const data = await res.json() as { prefill: Recipe };
     navigate('/recipes/new', { state: { prefill: data.prefill } });
+  };
+
+  const upsertSaved = async (
+    nextStatus: 'want_to_make' | 'made',
+    nextNotes: string,
+    successMessage?: string,
+  ) => {
+    if (!id) return;
+    setSaveLoading(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+
+    try {
+      const res = await fetch(`/api/recipes/${id}/saved`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: nextStatus,
+          personal_notes: nextNotes,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json() as {
+        saved: {
+          status: 'want_to_make' | 'made';
+          personal_notes: string | null;
+          saved_at: number;
+        };
+      };
+
+      setSavedStatus(data.saved.status);
+      setSavedNotes(data.saved.personal_notes ?? '');
+      setNotesDirty(false);
+      setRecipe((prev) => prev ? {
+        ...prev,
+        saved_status: data.saved.status,
+        saved_personal_notes: data.saved.personal_notes,
+        saved_at: data.saved.saved_at,
+      } : prev);
+      if (successMessage) setSaveSuccess(successMessage);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to save journal entry';
+      setSaveError(msg);
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const handleAddToJournal = async () => {
+    await upsertSaved('want_to_make', savedNotes, 'Added to your journal');
+  };
+
+  const handleStatusChange = async (_: MouseEvent<HTMLElement>, value: 'want_to_make' | 'made' | null) => {
+    if (!value) return;
+    await upsertSaved(value, savedNotes, value === 'made' ? 'Marked as made' : 'Marked as want to make');
+  };
+
+  const handleSaveNotes = async () => {
+    await upsertSaved(savedStatus ?? 'want_to_make', savedNotes, 'Private notes saved');
+  };
+
+  const handleRemoveFromJournal = async () => {
+    if (!id) return;
+    setSaveLoading(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+
+    try {
+      const res = await fetch(`/api/recipes/${id}/saved`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      setSavedStatus(null);
+      setSavedNotes('');
+      setNotesDirty(false);
+      setRecipe((prev) => prev ? {
+        ...prev,
+        saved_status: null,
+        saved_personal_notes: null,
+        saved_at: null,
+      } : prev);
+      setSaveSuccess('Removed from your journal');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to remove journal entry';
+      setSaveError(msg);
+    } finally {
+      setSaveLoading(false);
+    }
   };
 
   const loadVersions = async () => {
@@ -219,6 +317,70 @@ export default function RecipeDetail() {
           </Tooltip>
         )}
       </Box>
+
+      {!isOwner && (
+        <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+          <Typography variant="subtitle1" sx={{ mb: 0.5 }}>
+            My Journal Entry
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            This is private to you. The recipe owner cannot see your status or notes.
+          </Typography>
+
+          {saveError && <Alert severity="error" sx={{ mb: 2 }}>{saveError}</Alert>}
+          {saveSuccess && <Alert severity="success" sx={{ mb: 2 }}>{saveSuccess}</Alert>}
+
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, alignItems: 'center', mb: 2 }}>
+            {!savedStatus && (
+              <Button variant="contained" onClick={handleAddToJournal} disabled={saveLoading}>
+                Add to My Journal
+              </Button>
+            )}
+
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={savedStatus ?? ''}
+              onChange={handleStatusChange}
+              disabled={saveLoading}
+            >
+              <ToggleButton value="want_to_make">Want To Make</ToggleButton>
+              <ToggleButton value="made">Made</ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+
+          <TextField
+            label="My Private Notes"
+            value={savedNotes}
+            onChange={(e) => {
+              setSavedNotes(e.target.value);
+              setNotesDirty(true);
+              setSaveSuccess(null);
+            }}
+            multiline
+            minRows={3}
+            fullWidth
+            placeholder="Tasting notes, tweaks, what to buy next time..."
+          />
+
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1.5 }}>
+            {savedStatus ? (
+              <Button color="error" variant="outlined" onClick={handleRemoveFromJournal} disabled={saveLoading}>
+                Remove from My Journal
+              </Button>
+            ) : (
+              <Box />
+            )}
+            <Button
+              variant="outlined"
+              onClick={handleSaveNotes}
+              disabled={saveLoading || (!notesDirty && Boolean(savedStatus))}
+            >
+              Save Notes
+            </Button>
+          </Box>
+        </Paper>
+      )}
 
       {/* Primary image */}
       {primaryImage && (

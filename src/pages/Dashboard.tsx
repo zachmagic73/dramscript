@@ -11,11 +11,13 @@ import type { Recipe, RecipeType, Difficulty, RecipeTemplate } from '../types';
 import { RECIPE_TYPES, DIFFICULTIES } from '../types';
 import RecipeCard from '../components/RecipeCard';
 import { getMatchedVia } from '../utils/synonyms';
+import { useAuth } from '../hooks/useAuth';
 
 const ALL = '';
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [templates, setTemplates] = useState<RecipeTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,13 +29,19 @@ export default function Dashboard() {
   const [typeFilter, setTypeFilter] = useState<RecipeType | ''>('');
   const [difficultyFilter, setDifficultyFilter] = useState<Difficulty | ''>('');
   const [tagFilter, setTagFilter] = useState('');
+  const [entryFilter, setEntryFilter] = useState<'all' | 'mine'>('all');
   const [templateFilter, setTemplateFilter] = useState<'hide' | 'show'>('hide');
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const filteredRecipes = entryFilter === 'mine'
+    ? recipes.filter((recipe) => recipe.user_id === user?.id)
+    : recipes;
 
   const activeFilterCount = [
     typeFilter !== '',
     difficultyFilter !== '',
     tagFilter !== '',
+    entryFilter !== 'all',
     templateFilter !== 'hide',
   ].filter(Boolean).length;
 
@@ -90,7 +98,7 @@ export default function Dashboard() {
           My Journal
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          {recipes.length} {recipes.length === 1 ? 'recipe' : 'recipes'}
+          {filteredRecipes.length} {filteredRecipes.length === 1 ? 'recipe' : 'recipes'}
           {templateFilter === 'show' ? ` • ${templates.length} ${templates.length === 1 ? 'template' : 'templates'}` : ''}
         </Typography>
       </Box>
@@ -139,6 +147,18 @@ export default function Dashboard() {
           <Typography variant="h6" sx={{ mb: 2 }}>Filters</Typography>
 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Entries</InputLabel>
+              <Select
+                value={entryFilter}
+                label="Entries"
+                onChange={(e) => setEntryFilter(e.target.value as 'all' | 'mine')}
+              >
+                <MenuItem value="all">Everyone&apos;s entries</MenuItem>
+                <MenuItem value="mine">Mine only</MenuItem>
+              </Select>
+            </FormControl>
+
             <FormControl size="small" fullWidth>
               <InputLabel>Templates</InputLabel>
               <Select
@@ -207,6 +227,7 @@ export default function Dashboard() {
                   setTypeFilter('');
                   setDifficultyFilter('');
                   setTagFilter('');
+                  setEntryFilter('all');
                   setTemplateFilter('hide');
                 }}
               >
@@ -227,7 +248,7 @@ export default function Dashboard() {
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
           <CircularProgress color="primary" />
         </Box>
-      ) : recipes.length === 0 && (templateFilter !== 'show' || templates.length === 0) ? (
+      ) : filteredRecipes.length === 0 && (templateFilter !== 'show' || templates.length === 0) ? (
         <Box
           sx={{
             textAlign: 'center', py: 10,
@@ -235,7 +256,7 @@ export default function Dashboard() {
           }}
         >
           <Typography variant="h6" color="text.secondary" gutterBottom>
-            {search || typeFilter || difficultyFilter || tagFilter || templateFilter !== 'hide'
+            {search || typeFilter || difficultyFilter || tagFilter || entryFilter !== 'all' || templateFilter !== 'hide'
               ? 'No recipes match your filters'
               : 'No recipes yet'}
           </Typography>
@@ -245,13 +266,15 @@ export default function Dashboard() {
         </Box>
       ) : (
         <Box>
-          {recipes.length > 0 && (
+          {filteredRecipes.length > 0 && (
             <Grid container spacing={2} sx={{ mb: templateFilter === 'show' && templates.length > 0 ? 3 : 0 }}>
-              {recipes.map((recipe) => (
+              {filteredRecipes.map((recipe) => (
                 <Grid key={recipe.id} size={{ xs: 12, sm: 6, lg: 4 }}>
                   <RecipeCard
                     recipe={recipe}
                     onClick={() => navigate(`/recipes/${recipe.id}`)}
+                    showCreator={true}
+                    suppressPrepTypeIcons={true}
                   />
                 </Grid>
               ))}

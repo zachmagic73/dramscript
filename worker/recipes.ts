@@ -24,6 +24,33 @@ interface RecipeInput {
 }
 
 type DbRow = Record<string, unknown>;
+type SavedRecipeStatus = 'want_to_make' | 'made';
+
+interface SaveRecipeInput {
+  status?: SavedRecipeStatus;
+  personal_notes?: string | null;
+}
+
+const PREP_RECIPE_TYPES = new Set(['syrup', 'bitter', 'tincture', 'shrub']);
+
+function normalizeSavedStatus(status?: string | null): SavedRecipeStatus {
+  return status === 'made' ? 'made' : 'want_to_make';
+}
+
+function normalizeRecipeInput(body: RecipeInput): RecipeInput {
+  const type = (body.type ?? 'cocktail').toLowerCase();
+  if (!PREP_RECIPE_TYPES.has(type)) return body;
+
+  return {
+    ...body,
+    glass_type: null,
+    ice_type: null,
+    method: null,
+    garnish: null,
+    placeholder_icon: null,
+    servings: 1,
+  };
+}
 
 async function insertIngredients(
   env: Env,
@@ -72,18 +99,51 @@ export async function listRecipes(request: Request, env: Env): Promise<Response>
     return json({ recipes: result.results });
   }
 
-  let query = `
-    SELECT r.*,
-           ri.r2_key AS primary_image
-    FROM recipes r
-    LEFT JOIN recipe_images ri ON ri.recipe_id = r.id AND ri.is_primary = 1
-    WHERE r.user_id = ?
-  `;
-  const params: unknown[] = [auth.user_id];
+  // Include both recipes I authored and recipes I saved from Discover.
+  const friendsResult = await env.dramscript_db
+    .prepare(
+      `
+      SELECT DISTINCT
+        CASE WHEN requester_id = ? THEN addressee_id ELSE requester_id END AS friend_id
+      FROM friendships
+      WHERE (requester_id = ? OR addressee_id = ?) AND status = 'accepted'
+      `
+    )
+    .bind(auth.user_id, auth.user_id, auth.user_id)
+    .all<DbRow>();
 
-  if (type) { query += ' AND r.type = ?'; params.push(type); }
-  if (difficulty) { query += ' AND r.difficulty = ?'; params.push(difficulty); }
-  if (tag) { query += ' AND r.tags LIKE ?'; params.push(`%"${tag}"%`); }
+  const friendIds = friendsResult.results.map((r) => r.friend_id as string);
+
+  const ownWhere: string[] = ['r.user_id = ?'];
+  const ownParams: unknown[] = [auth.user_id];
+  const savedWhere: string[] = ['sr.user_id = ?', 'r.user_id != ?'];
+  const savedParams: unknown[] = [auth.user_id, auth.user_id];
+
+  if (friendIds.length > 0) {
+    savedWhere.push(`(r.visibility = 'public' OR (r.visibility = 'friends' AND r.user_id IN (${friendIds.map(() => '?').join(',')})))`);
+    savedParams.push(...friendIds);
+  } else {
+    savedWhere.push("r.visibility = 'public'");
+  }
+
+  if (type) {
+    ownWhere.push('r.type = ?');
+    ownParams.push(type);
+    savedWhere.push('r.type = ?');
+    savedParams.push(type);
+  }
+  if (difficulty) {
+    ownWhere.push('r.difficulty = ?');
+    ownParams.push(difficulty);
+    savedWhere.push('r.difficulty = ?');
+    savedParams.push(difficulty);
+  }
+  if (tag) {
+    ownWhere.push('r.tags LIKE ?');
+    ownParams.push(`%"${tag}"%`);
+    savedWhere.push('r.tags LIKE ?');
+    savedParams.push(`%"${tag}"%`);
+  }
   if (search) {
     const terms = expandSearchTerms(search);
     const termClauses = terms
@@ -97,15 +157,58 @@ export async function listRecipes(request: Request, env: Env): Promise<Response>
         )
       )`)
       .join(' OR ');
-    query += ` AND (${termClauses})`;
+
+    ownWhere.push(`(${termClauses})`);
+    savedWhere.push(`(${termClauses})`);
+
     for (const term of terms) {
       const like = `%${term}%`;
-      params.push(like, like, like);
+      ownParams.push(like, like, like);
+      savedParams.push(like, like, like);
     }
   }
-  query += ' ORDER BY r.updated_at DESC';
 
-  const result = await env.dramscript_db.prepare(query).bind(...params).all<DbRow>();
+  const query = `
+    SELECT * FROM (
+      SELECT
+        r.*,
+        ri.r2_key AS primary_image,
+        CAST(NULL AS TEXT) AS display_name,
+        CAST(NULL AS TEXT) AS avatar_url,
+        CAST(NULL AS TEXT) AS saved_status,
+        CAST(NULL AS TEXT) AS saved_personal_notes,
+        CAST(NULL AS INTEGER) AS saved_at,
+        0 AS is_saved_entry,
+        r.updated_at AS entry_sort_ts
+      FROM recipes r
+      LEFT JOIN recipe_images ri ON ri.recipe_id = r.id AND ri.is_primary = 1
+      WHERE ${ownWhere.join(' AND ')}
+
+      UNION ALL
+
+      SELECT
+        r.*,
+        ri.r2_key AS primary_image,
+        u.display_name,
+        u.avatar_url,
+        sr.status AS saved_status,
+        sr.personal_notes AS saved_personal_notes,
+        sr.saved_at,
+        1 AS is_saved_entry,
+        COALESCE(sr.saved_at, r.updated_at) AS entry_sort_ts
+      FROM saved_recipes sr
+      JOIN recipes r ON r.id = sr.recipe_id
+      LEFT JOIN recipe_images ri ON ri.recipe_id = r.id AND ri.is_primary = 1
+      JOIN users u ON u.id = r.user_id
+      WHERE ${savedWhere.join(' AND ')}
+    ) combined
+    ORDER BY entry_sort_ts DESC
+  `;
+
+  const result = await env.dramscript_db
+    .prepare(query)
+    .bind(...ownParams, ...savedParams)
+    .all<DbRow>();
   const recipes = result.results.map((r) => ({
     ...r,
     tags: r.tags ? JSON.parse(r.tags as string) : [],
@@ -151,6 +254,11 @@ export async function getRecipe(request: Request, env: Env, id: string): Promise
     env.dramscript_db.prepare('SELECT * FROM recipe_images WHERE recipe_id = ? ORDER BY is_primary DESC, created_at ASC').bind(id).all(),
   ]);
 
+  const savedRecipe = await env.dramscript_db
+    .prepare('SELECT status, personal_notes, saved_at FROM saved_recipes WHERE user_id = ? AND recipe_id = ?')
+    .bind(auth.user_id, id)
+    .first<DbRow>();
+
   // Fetch referenced recipes for ingredients that have them
   const ingredientsWithRefs = await Promise.all(
     ingredients.results.map(async (ing: DbRow) => {
@@ -170,15 +278,118 @@ export async function getRecipe(request: Request, env: Env, id: string): Promise
       ingredients: ingredientsWithRefs,
       steps: steps.results,
       images: images.results,
+      saved_status: savedRecipe?.status ?? null,
+      saved_personal_notes: savedRecipe?.personal_notes ?? null,
+      saved_at: savedRecipe?.saved_at ?? null,
     },
   });
+}
+
+/**
+ * Get the current user's saved-journal entry for a recipe.
+ * GET /api/recipes/:id/saved
+ */
+export async function getSavedRecipe(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+
+  const recipe = await env.dramscript_db
+    .prepare('SELECT id, user_id, visibility FROM recipes WHERE id = ?')
+    .bind(id)
+    .first<DbRow>();
+
+  if (!recipe) return notFound();
+
+  // You can only save someone else's recipe from Discover.
+  if (recipe.user_id === auth.user_id) {
+    return json({ saved: null });
+  }
+
+  const saved = await env.dramscript_db
+    .prepare('SELECT status, personal_notes, saved_at FROM saved_recipes WHERE user_id = ? AND recipe_id = ?')
+    .bind(auth.user_id, id)
+    .first<DbRow>();
+
+  if (!saved) return json({ saved: null });
+
+  return json({
+    saved: {
+      status: saved.status,
+      personal_notes: saved.personal_notes ?? null,
+      saved_at: saved.saved_at,
+    },
+  });
+}
+
+/**
+ * Save/update current user's journal entry for someone else's recipe.
+ * PUT /api/recipes/:id/saved
+ */
+export async function upsertSavedRecipe(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+
+  const recipe = await env.dramscript_db
+    .prepare('SELECT id, user_id FROM recipes WHERE id = ?')
+    .bind(id)
+    .first<DbRow>();
+
+  if (!recipe) return notFound();
+  if (recipe.user_id === auth.user_id) {
+    return json({ error: 'Cannot save your own recipe' }, 400);
+  }
+
+  const body = await request.json() as SaveRecipeInput;
+  const status = normalizeSavedStatus(body.status);
+  const personalNotes = body.personal_notes?.trim() ? body.personal_notes.trim() : null;
+
+  await env.dramscript_db
+    .prepare(`
+      INSERT INTO saved_recipes (id, user_id, recipe_id, status, personal_notes)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, recipe_id) DO UPDATE SET
+        status = excluded.status,
+        personal_notes = excluded.personal_notes,
+        saved_at = strftime('%s', 'now')
+    `)
+    .bind(crypto.randomUUID(), auth.user_id, id, status, personalNotes)
+    .run();
+
+  const saved = await env.dramscript_db
+    .prepare('SELECT status, personal_notes, saved_at FROM saved_recipes WHERE user_id = ? AND recipe_id = ?')
+    .bind(auth.user_id, id)
+    .first<DbRow>();
+
+  return json({
+    saved: {
+      status: saved?.status,
+      personal_notes: saved?.personal_notes ?? null,
+      saved_at: saved?.saved_at ?? null,
+    },
+  });
+}
+
+/**
+ * Remove current user's journal entry for someone else's recipe.
+ * DELETE /api/recipes/:id/saved
+ */
+export async function deleteSavedRecipe(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+
+  await env.dramscript_db
+    .prepare('DELETE FROM saved_recipes WHERE user_id = ? AND recipe_id = ?')
+    .bind(auth.user_id, id)
+    .run();
+
+  return json({ ok: true });
 }
 
 export async function createRecipe(request: Request, env: Env): Promise<Response> {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
 
-  const body = await request.json() as RecipeInput;
+  const body = normalizeRecipeInput(await request.json() as RecipeInput);
   if (!body.name?.trim()) return json({ error: 'Name is required' }, 400);
 
   const id = crypto.randomUUID();
@@ -222,7 +433,7 @@ export async function updateRecipe(request: Request, env: Env, id: string): Prom
 
   if (!recipe) return notFound();
 
-  const body = await request.json() as RecipeInput;
+  const body = normalizeRecipeInput(await request.json() as RecipeInput);
   if (!body.name?.trim()) return json({ error: 'Name is required' }, 400);
 
   // Save snapshot of current version before overwriting
@@ -368,11 +579,11 @@ export async function restoreVersion(request: Request, env: Env, versionId: stri
     .bind(crypto.randomUUID(), version.recipe_id, currentRecipe.version, currentSnapshot)
     .run();
 
-  const snapshot = JSON.parse(version.snapshot) as RecipeInput & {
+  const snapshot = normalizeRecipeInput(JSON.parse(version.snapshot) as RecipeInput & {
     tags?: string[];
     ingredients?: { name: string; amount?: number | null; unit?: string | null }[];
     steps?: { description: string }[];
-  };
+  });
 
   const newVersion = currentRecipe.version + 1;
 
@@ -479,10 +690,14 @@ export async function searchPublicRecipes(request: Request, env: Env): Promise<R
   let query = `
     SELECT r.*,
            ri.r2_key AS primary_image,
-           u.display_name, u.avatar_url
+           u.display_name, u.avatar_url,
+           sr.status AS saved_status,
+           sr.personal_notes AS saved_personal_notes,
+           sr.saved_at
     FROM recipes r
     LEFT JOIN recipe_images ri ON ri.recipe_id = r.id AND ri.is_primary = 1
     JOIN users u ON u.id = r.user_id
+    LEFT JOIN saved_recipes sr ON sr.recipe_id = r.id AND sr.user_id = ?
     WHERE 
       (r.visibility = 'public'${friendIds.length > 0
         ? ` OR (r.visibility = 'friends' AND r.user_id IN (${friendIds.map(() => '?').join(',')}))`
@@ -490,7 +705,7 @@ export async function searchPublicRecipes(request: Request, env: Env): Promise<R
       )
       AND r.user_id != ?
   `;
-  const params: unknown[] = [...friendIds, auth.user_id];
+  const params: unknown[] = [auth.user_id, ...friendIds, auth.user_id];
 
   if (type) { query += ' AND r.type = ?'; params.push(type); }
   if (difficulty) { query += ' AND r.difficulty = ?'; params.push(difficulty); }

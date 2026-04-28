@@ -23,6 +23,7 @@ import type { Recipe, RecipeFormValues } from '../types';
 import { RECIPE_TYPES, ICE_TYPES, METHODS, DIFFICULTIES, UNITS, GLASS_TYPES } from '../types';
 import CocktailSpritePlaceholder from '../components/CocktailSpritePlaceholder';
 import { ICON_COUNT, resolvePlaceholderIcon } from '../utils/cocktailIcons';
+import { useAuth } from '../hooks/useAuth';
 
 // ── Sortable ingredient row ───────────────────────────────────────────────────
 function SortableIngredientRow({
@@ -203,8 +204,8 @@ function SortableStepRow({
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function emptyIng() {
-  return { id: crypto.randomUUID(), name: '', amount: '', unit: '', referenced_recipe_id: null };
+function emptyIng(defaultUnit = '') {
+  return { id: crypto.randomUUID(), name: '', amount: '', unit: defaultUnit, referenced_recipe_id: null };
 }
 
 function emptyStep() {
@@ -246,6 +247,8 @@ const COMMON_TAGS = [
   'poolside', 'date night', 'winter', 'summer',
 ];
 
+const PREP_RECIPE_TYPES = ['syrup', 'bitter', 'tincture', 'shrub'] as const;
+
 // ── Main component ────────────────────────────────────────────────────────────
 const DEFAULT_VALUES: RecipeFormValues = {
   name: '', type: 'cocktail', glass_type: '', ice_type: '', method: '',
@@ -258,12 +261,18 @@ const DEFAULT_VALUES: RecipeFormValues = {
 };
 
 export default function RecipeForm() {
+  const { user } = useAuth();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const isEdit = Boolean(id);
+  const preferredUnit = user?.default_units ?? 'oz';
 
-  const [values, setValues] = useState<RecipeFormValues>(DEFAULT_VALUES);
+  const [values, setValues] = useState<RecipeFormValues>(() => ({
+    ...DEFAULT_VALUES,
+    ingredients: [emptyIng(preferredUnit)],
+  }));
+  const hideCocktailFields = PREP_RECIPE_TYPES.includes(values.type as (typeof PREP_RECIPE_TYPES)[number]);
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -335,7 +344,7 @@ export default function RecipeForm() {
   const removeIng = (idx: number) =>
     setValues((v) => ({ ...v, ingredients: v.ingredients.filter((_, i) => i !== idx) }));
 
-  const addIng = () => setValues((v) => ({ ...v, ingredients: [...v.ingredients, emptyIng()] }));
+  const addIng = () => setValues((v) => ({ ...v, ingredients: [...v.ingredients, emptyIng(preferredUnit)] }));
 
   const onIngDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -376,9 +385,21 @@ export default function RecipeForm() {
     setSaving(true);
     setError(null);
     try {
+      const normalizedValues = hideCocktailFields
+        ? {
+            ...values,
+            glass_type: '',
+            ice_type: '',
+            method: '',
+            garnish: '',
+            placeholder_icon: null,
+            servings: 1,
+          }
+        : values;
+
       const body = {
-        ...values,
-        ingredients: values.ingredients
+        ...normalizedValues,
+        ingredients: normalizedValues.ingredients
           .filter((i) => i.name.trim())
           .map((i) => ({
             name: i.name,
@@ -386,7 +407,7 @@ export default function RecipeForm() {
             unit: i.unit || null,
             referenced_recipe_id: i.referenced_recipe_id || null,
           })),
-        steps: values.steps
+        steps: normalizedValues.steps
           .filter((s) => s.description.trim())
           .map((s) => ({ description: s.description })),
       };
@@ -467,32 +488,38 @@ export default function RecipeForm() {
           {RECIPE_TYPES.map((t) => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
         </TextField>
 
-        <TextField
-          select label="Glass" value={values.glass_type} size="small"
-          onChange={(e) => set('glass_type', e.target.value)}
-          sx={{ minWidth: 140 }}
-        >
-          <MenuItem value=""><em>None</em></MenuItem>
-          {GLASS_TYPES.map((g) => <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>)}
-        </TextField>
+        {!hideCocktailFields && (
+          <TextField
+            select label="Glass" value={values.glass_type} size="small"
+            onChange={(e) => set('glass_type', e.target.value)}
+            sx={{ minWidth: 140 }}
+          >
+            <MenuItem value=""><em>None</em></MenuItem>
+            {GLASS_TYPES.map((g) => <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>)}
+          </TextField>
+        )}
 
-        <TextField
-          select label="Ice" value={values.ice_type} size="small"
-          onChange={(e) => set('ice_type', e.target.value)}
-          sx={{ minWidth: 140 }}
-        >
-          <MenuItem value=""><em>Not specified</em></MenuItem>
-          {ICE_TYPES.map((i) => <MenuItem key={i.value} value={i.value}>{i.label}</MenuItem>)}
-        </TextField>
+        {!hideCocktailFields && (
+          <TextField
+            select label="Ice" value={values.ice_type} size="small"
+            onChange={(e) => set('ice_type', e.target.value)}
+            sx={{ minWidth: 140 }}
+          >
+            <MenuItem value=""><em>Not specified</em></MenuItem>
+            {ICE_TYPES.map((i) => <MenuItem key={i.value} value={i.value}>{i.label}</MenuItem>)}
+          </TextField>
+        )}
 
-        <TextField
-          select label="Method" value={values.method} size="small"
-          onChange={(e) => set('method', e.target.value)}
-          sx={{ minWidth: 140 }}
-        >
-          <MenuItem value=""><em>Not specified</em></MenuItem>
-          {METHODS.map((m) => <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>)}
-        </TextField>
+        {!hideCocktailFields && (
+          <TextField
+            select label="Method" value={values.method} size="small"
+            onChange={(e) => set('method', e.target.value)}
+            sx={{ minWidth: 140 }}
+          >
+            <MenuItem value=""><em>Not specified</em></MenuItem>
+            {METHODS.map((m) => <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>)}
+          </TextField>
+        )}
 
         <TextField
           select label="Difficulty" value={values.difficulty} size="small"
@@ -503,18 +530,22 @@ export default function RecipeForm() {
           {DIFFICULTIES.map((d) => <MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>)}
         </TextField>
 
-        <TextField
-          label="Servings" type="number" value={values.servings} size="small"
-          onChange={(e) => set('servings', Math.max(1, parseInt(e.target.value) || 1))}
-          slotProps={{ htmlInput: { min: 1 } }}
-          sx={{ width: 120 }}
-        />
+        {!hideCocktailFields && (
+          <TextField
+            label="Servings" type="number" value={values.servings} size="small"
+            onChange={(e) => set('servings', Math.max(1, parseInt(e.target.value) || 1))}
+            slotProps={{ htmlInput: { min: 1 } }}
+            sx={{ width: 120 }}
+          />
+        )}
       </Box>
 
-      <TextField
-        fullWidth label="Garnish" value={values.garnish}
-        onChange={(e) => set('garnish', e.target.value)} sx={{ mb: 2 }}
-      />
+      {!hideCocktailFields && (
+        <TextField
+          fullWidth label="Garnish" value={values.garnish}
+          onChange={(e) => set('garnish', e.target.value)} sx={{ mb: 2 }}
+        />
+      )}
 
       {/* ── Tags ── */}
       <Autocomplete
@@ -561,40 +592,42 @@ export default function RecipeForm() {
           <MenuItem value="made">Made</MenuItem>
         </TextField>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-          <Box
-            onClick={() => setIconPickerOpen(true)}
-            sx={{
-              width: 56,
-              height: 56,
-              borderRadius: 1,
-              overflow: 'hidden',
-              border: '1px solid',
-              borderColor: 'divider',
-              cursor: 'pointer',
-            }}
-          >
-            <CocktailSpritePlaceholder
-              seed={`${values.name}:${values.type}:${values.glass_type}:${values.garnish}:${values.ice_type}`}
-              fallbackEmoji="🍸"
-              iconNumber={resolvePlaceholderIcon(values, values.placeholder_icon)}
-              height={56}
-              width={56}
-              withBottomBorder={false}
-            />
+        {!hideCocktailFields && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+            <Box
+              onClick={() => setIconPickerOpen(true)}
+              sx={{
+                width: 56,
+                height: 56,
+                borderRadius: 1,
+                overflow: 'hidden',
+                border: '1px solid',
+                borderColor: 'divider',
+                cursor: 'pointer',
+              }}
+            >
+              <CocktailSpritePlaceholder
+                seed={`${values.name}:${values.type}:${values.glass_type}:${values.garnish}:${values.ice_type}`}
+                fallbackEmoji="🍸"
+                iconNumber={resolvePlaceholderIcon(values, values.placeholder_icon)}
+                height={56}
+                width={56}
+                withBottomBorder={false}
+              />
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                Placeholder icon
+              </Typography>
+              <Button size="small" onClick={() => setIconPickerOpen(true)} sx={{ px: 0.5, minWidth: 'auto' }}>
+                {values.placeholder_icon == null ? 'Auto' : `Icon ${values.placeholder_icon}`}
+              </Button>
+            </Box>
           </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              Placeholder icon
-            </Typography>
-            <Button size="small" onClick={() => setIconPickerOpen(true)} sx={{ px: 0.5, minWidth: 'auto' }}>
-              {values.placeholder_icon == null ? 'Auto' : `Icon ${values.placeholder_icon}`}
-            </Button>
-          </Box>
-        </Box>
+        )}
       </Box>
 
-      <Dialog open={iconPickerOpen} onClose={() => setIconPickerOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={iconPickerOpen && !hideCocktailFields} onClose={() => setIconPickerOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Choose Placeholder Icon</DialogTitle>
         <DialogContent>
           <Box sx={{ mb: 1.5 }}>
