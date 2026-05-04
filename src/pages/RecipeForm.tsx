@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Typography, TextField, Select, MenuItem, FormControl, InputLabel,
   Button, Chip, Autocomplete, Alert,
   CircularProgress, Divider, IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions,
+  LinearProgress,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import LinkIcon from '@mui/icons-material/Link';
+import DocumentScannerIcon from '@mui/icons-material/DocumentScanner';
+import TextSnippetIcon from '@mui/icons-material/TextSnippet';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
   type DragEndEvent,
@@ -19,11 +22,536 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import Tesseract from 'tesseract.js';
 import type { Recipe, RecipeFormValues } from '../types';
 import { RECIPE_TYPES, ICE_TYPES, METHODS, DIFFICULTIES, UNITS, GLASS_TYPES } from '../types';
 import CocktailSpritePlaceholder from '../components/CocktailSpritePlaceholder';
 import { ICON_COUNT, resolvePlaceholderIcon } from '../utils/cocktailIcons';
 import { useAuth } from '../hooks/useAuth';
+
+// ── Ingredient reference suggestion type ─────────────────────────────────────
+interface IngRefSuggestion {
+  id: string;
+  name: string;
+  category: string;
+  subcategory: string | null;
+  brand: string | null;
+}
+
+// ── AI-parsed recipe shape ────────────────────────────────────────────────────
+interface ParsedRecipe {
+  name: string | null;
+  glass_type: string | null;
+  ice_type: string | null;
+  method: string | null;
+  garnish: string | null;
+  ingredients: Array<{ amount: string; unit: string; name: string }>;
+  steps: string[];
+  notes: string | null;
+}
+
+interface ConfidenceReport {
+  title: 'high' | 'medium' | 'low';
+  ingredients: 'high' | 'medium' | 'low';
+  steps: 'high' | 'medium' | 'low';
+  warnings: string[];
+}
+
+function ConfidenceChip({ level }: { level: 'high' | 'medium' | 'low' }) {
+  const colors = { high: '#4A7C59', medium: '#D4622A', low: '#C0392B' } as const;
+  const labels = { high: 'High', medium: 'Medium', low: 'Low' } as const;
+  return (
+    <Box
+      component="span"
+      sx={{
+        display: 'inline-block',
+        px: 1,
+        py: 0.25,
+        borderRadius: 1,
+        fontSize: '0.7rem',
+        fontWeight: 600,
+        color: '#fff',
+        bgcolor: colors[level],
+        ml: 0.5,
+      }}
+    >
+      {labels[level]}
+    </Box>
+  );
+}
+
+// ── Image parse dialog ────────────────────────────────────────────────────────
+function ImageParseDialog({
+  open,
+  onClose,
+  onApply,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onApply: (parsed: ParsedRecipe) => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [parsing, setParsing] = useState(false);
+  const [parseStage, setParseStage] = useState('');
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [parsed, setParsed] = useState<ParsedRecipe | null>(null);
+  const [confidence, setConfidence] = useState<ConfidenceReport | null>(null);
+
+  const reset = () => {
+    setPreview(null);
+    setParsing(false);
+    setParseStage('');
+    setParseError(null);
+    setParsed(null);
+    setConfidence(null);
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setParseError(null);
+    setParsed(null);
+    setConfidence(null);
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      setPreview(dataUrl);
+      await runParse(dataUrl);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const runParse = async (dataUrl: string) => {
+    setParsing(true);
+    setParseStage('Reading text in browser…');
+    setParseError(null);
+    setParsed(null);
+    setConfidence(null);
+    try {
+      const ocrResult = await Tesseract.recognize(dataUrl, 'eng');
+      const ocrText = ocrResult?.data?.text?.trim() ?? '';
+      const ocrConfidence =
+        typeof ocrResult?.data?.confidence === 'number' ? ocrResult.data.confidence : null;
+
+      setParseStage('Parsing recipe…');
+      const res = await fetch('/api/recipes/parse-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl, ocrText, ocrConfidence, diagnostics: true }),
+      });
+      const data = await res.json() as {
+        parsed?: ParsedRecipe;
+        confidence?: ConfidenceReport;
+        error?: string;
+        extractionStatus?: string;
+      };
+
+      if (data.confidence) setConfidence(data.confidence);
+
+      if (data.error && data.parsed) {
+        // Soft error — partial result available
+        setParseError(data.error);
+        setParsed(data.parsed);
+        return;
+      }
+      if (!res.ok || data.error) {
+        setParseError(data.error ?? 'Parsing failed. Try a clearer photo.');
+        return;
+      }
+      if (!data.parsed || (!data.parsed.name && data.parsed.ingredients.length === 0)) {
+        setParseError("Couldn't find a recipe in that image. Try a clearer photo of the recipe card or page.");
+        return;
+      }
+      setParsed(data.parsed);
+    } catch {
+      setParseError('OCR or network error. Please try again.');
+    } finally {
+      setParseStage('');
+      setParsing(false);
+    }
+  };
+
+  const handleApply = () => {
+    if (parsed) {
+      onApply(parsed);
+      handleClose();
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ pb: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <DocumentScannerIcon color="primary" />
+          Scan a Recipe
+        </Box>
+      </DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Take a photo or upload an image of a recipe card, cookbook page, or handwritten recipe.
+          Fast browser OCR is tried first, and cloud OCR is used automatically if needed.
+        </Typography>
+
+        {/* Hidden file input — accept images, allow camera on mobile */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          style={{ display: 'none' }}
+          onChange={handleFileChange}
+        />
+
+        {!preview && (
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.removeAttribute('capture');
+                  fileInputRef.current.click();
+                }
+              }}
+            >
+              Upload Image
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.setAttribute('capture', 'environment');
+                  fileInputRef.current.click();
+                }
+              }}
+            >
+              Take Photo
+            </Button>
+          </Box>
+        )}
+
+        {preview && (
+          <Box sx={{ mb: 2 }}>
+            <Box
+              component="img"
+              src={preview}
+              alt="Recipe preview"
+              sx={{
+                width: '100%',
+                maxHeight: 280,
+                objectFit: 'contain',
+                borderRadius: 1,
+                border: '1px solid',
+                borderColor: 'divider',
+                display: 'block',
+                mb: 1.5,
+              }}
+            />
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => {
+                reset();
+                setTimeout(() => fileInputRef.current?.click(), 50);
+              }}
+            >
+              Use a different image
+            </Button>
+          </Box>
+        )}
+
+        {parsing && (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              {parseStage || 'Reading recipe…'}
+            </Typography>
+            <LinearProgress color="primary" />
+          </Box>
+        )}
+
+        {parseError && (
+          <Alert severity="error" sx={{ mt: 2 }}>{parseError}</Alert>
+        )}
+
+        {parsed && !parsing && (
+          <Box sx={{ mt: 2 }}>
+            <Alert severity="success" sx={{ mb: 1.5 }}>
+              Recipe parsed! Review what was found below, then click Apply.
+            </Alert>
+
+            {confidence && (
+              <Box sx={{ mb: 1.5, p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
+                <Typography variant="caption" sx={{ display: 'block', mb: 0.5 }}>
+                  Parse confidence
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 0.25 }}>
+                  <strong>Title:</strong> <ConfidenceChip level={confidence.title} />
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 0.25 }}>
+                  <strong>Ingredients:</strong> <ConfidenceChip level={confidence.ingredients} />
+                </Typography>
+                <Typography variant="body2" sx={{ mb: confidence.warnings.length ? 0.5 : 0 }}>
+                  <strong>Steps:</strong> <ConfidenceChip level={confidence.steps} />
+                </Typography>
+                {confidence.warnings.length > 0 && (
+                  <Box sx={{ mt: 0.5 }}>
+                    {confidence.warnings.slice(0, 3).map((warning, idx) => (
+                      <Typography key={idx} variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        - {warning}
+                      </Typography>
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            )}
+
+            {parsed.name && (
+              <Typography variant="body2" sx={{ mb: 0.5 }}>
+                <strong>Name:</strong> {parsed.name}
+              </Typography>
+            )}
+            {parsed.method && (
+              <Typography variant="body2" sx={{ mb: 0.5 }}>
+                <strong>Method:</strong> {parsed.method}
+              </Typography>
+            )}
+            {parsed.glass_type && (
+              <Typography variant="body2" sx={{ mb: 0.5 }}>
+                <strong>Glass:</strong> {parsed.glass_type}
+              </Typography>
+            )}
+            {parsed.ice_type && (
+              <Typography variant="body2" sx={{ mb: 0.5 }}>
+                <strong>Ice:</strong> {parsed.ice_type}
+              </Typography>
+            )}
+            {parsed.garnish && (
+              <Typography variant="body2" sx={{ mb: 0.5 }}>
+                <strong>Garnish:</strong> {parsed.garnish}
+              </Typography>
+            )}
+            {parsed.ingredients.length > 0 && (
+              <Box sx={{ mt: 1, mb: 0.5 }}>
+                <Typography variant="body2" fontWeight={600}>Ingredients ({parsed.ingredients.length}):</Typography>
+                {parsed.ingredients.map((ing, i) => (
+                  <Typography key={i} variant="body2" color="text.secondary" sx={{ pl: 1 }}>
+                    {[ing.amount, ing.unit, ing.name].filter(Boolean).join(' ')}
+                  </Typography>
+                ))}
+              </Box>
+            )}
+            {parsed.steps.length > 0 && (
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="body2" fontWeight={600}>Steps ({parsed.steps.length}):</Typography>
+                {parsed.steps.slice(0, 3).map((s, i) => (
+                  <Typography key={i} variant="body2" color="text.secondary" sx={{ pl: 1 }}>
+                    {i + 1}. {s.length > 80 ? s.slice(0, 80) + '…' : s}
+                  </Typography>
+                ))}
+                {parsed.steps.length > 3 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ pl: 1 }}>
+                    + {parsed.steps.length - 3} more step{parsed.steps.length - 3 > 1 ? 's' : ''}
+                  </Typography>
+                )}
+              </Box>
+            )}
+          </Box>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={handleClose} color="inherit">Cancel</Button>
+        {parsed && !parsing && (
+          <Button onClick={handleApply} variant="contained" color="primary">
+            Apply to form
+          </Button>
+        )}
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function TextParseDialog({
+  open,
+  onClose,
+  onApply,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onApply: (parsed: ParsedRecipe) => void;
+}) {
+  const [inputText, setInputText] = useState('');
+  const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [parsed, setParsed] = useState<ParsedRecipe | null>(null);
+  const [confidence, setConfidence] = useState<ConfidenceReport | null>(null);
+
+  const reset = () => {
+    setInputText('');
+    setParsing(false);
+    setParseError(null);
+    setParsed(null);
+    setConfidence(null);
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const runParse = async () => {
+    if (!inputText.trim()) {
+      setParseError('Paste or type recipe text first.');
+      return;
+    }
+
+    setParsing(true);
+    setParseError(null);
+    setParsed(null);
+    setConfidence(null);
+    try {
+      const res = await fetch('/api/recipes/parse-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: inputText, diagnostics: true }),
+      });
+      const data = await res.json() as {
+        parsed?: ParsedRecipe;
+        confidence?: ConfidenceReport;
+        error?: string;
+      };
+
+      if (data.confidence) setConfidence(data.confidence);
+
+      if (data.error && data.parsed) {
+        setParseError(data.error);
+        setParsed(data.parsed);
+        return;
+      }
+      if (!res.ok || data.error) {
+        setParseError(data.error ?? 'Parsing failed. Try formatting the text with ingredients and steps.');
+        return;
+      }
+      if (!data.parsed || (!data.parsed.name && data.parsed.ingredients.length === 0)) {
+        setParseError("Couldn't find a recipe in that text. Add more details and try again.");
+        return;
+      }
+      setParsed(data.parsed);
+    } catch {
+      setParseError('Network error while parsing text. Please try again.');
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const handleApply = () => {
+    if (parsed) {
+      onApply(parsed);
+      handleClose();
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ pb: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <TextSnippetIcon color="primary" />
+          Paste Recipe Text
+        </Box>
+      </DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Paste a recipe from notes, a website, or anywhere else. AI will parse the text and pre-fill your form fields.
+        </Typography>
+
+        <TextField
+          fullWidth
+          multiline
+          minRows={10}
+          maxRows={18}
+          placeholder={'Example:\nOld Fashioned\n2 oz Bourbon\n1/4 oz Demerara Syrup\n2 dashes Angostura\nStir with ice and strain over a large cube.'}
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          disabled={parsing}
+        />
+
+        {parseError && <Alert severity="error" sx={{ mt: 2 }}>{parseError}</Alert>}
+
+        {parsed && !parsing && (
+          <Box sx={{ mt: 2 }}>
+            <Alert severity="success" sx={{ mb: 1.5 }}>
+              Recipe parsed! Review what was found below, then click Apply.
+            </Alert>
+
+            {confidence && (
+              <Box sx={{ mb: 1.5, p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
+                <Typography variant="caption" sx={{ display: 'block', mb: 0.5 }}>
+                  Parse confidence
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 0.25 }}>
+                  <strong>Title:</strong> <ConfidenceChip level={confidence.title} />
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 0.25 }}>
+                  <strong>Ingredients:</strong> <ConfidenceChip level={confidence.ingredients} />
+                </Typography>
+                <Typography variant="body2" sx={{ mb: confidence.warnings.length ? 0.5 : 0 }}>
+                  <strong>Steps:</strong> <ConfidenceChip level={confidence.steps} />
+                </Typography>
+              </Box>
+            )}
+
+            {parsed.name && (
+              <Typography variant="body2" sx={{ mb: 0.5 }}>
+                <strong>Name:</strong> {parsed.name}
+              </Typography>
+            )}
+            {parsed.ingredients.length > 0 && (
+              <Box sx={{ mt: 1, mb: 0.5 }}>
+                <Typography variant="body2" fontWeight={600}>Ingredients ({parsed.ingredients.length}):</Typography>
+                {parsed.ingredients.map((ing, i) => (
+                  <Typography key={i} variant="body2" color="text.secondary" sx={{ pl: 1 }}>
+                    {[ing.amount, ing.unit, ing.name].filter(Boolean).join(' ')}
+                  </Typography>
+                ))}
+              </Box>
+            )}
+            {parsed.steps.length > 0 && (
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="body2" fontWeight={600}>Steps ({parsed.steps.length}):</Typography>
+                {parsed.steps.slice(0, 3).map((s, i) => (
+                  <Typography key={i} variant="body2" color="text.secondary" sx={{ pl: 1 }}>
+                    {i + 1}. {s.length > 80 ? s.slice(0, 80) + '…' : s}
+                  </Typography>
+                ))}
+              </Box>
+            )}
+          </Box>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={handleClose} color="inherit">Cancel</Button>
+        {!parsed && (
+          <Button onClick={runParse} variant="contained" disabled={parsing}>
+            {parsing ? 'Parsing…' : 'Parse Text'}
+          </Button>
+        )}
+        {parsed && !parsing && (
+          <Button onClick={handleApply} variant="contained" color="primary">
+            Apply to form
+          </Button>
+        )}
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+
 
 // ── Sortable ingredient row ───────────────────────────────────────────────────
 function SortableIngredientRow({
@@ -40,8 +568,27 @@ function SortableIngredientRow({
   allRecipes: Array<{ id: string; name: string; type: string }>;
 }) {
   const [showRefDropdown, setShowRefDropdown] = useState(false);
+  const [ingRefSuggestions, setIngRefSuggestions] = useState<IngRefSuggestion[]>([]);
+  const [ingRefLoading, setIngRefLoading] = useState(false);
+  const ingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: ing.id });
+
+  const handleIngRefSearch = (value: string) => {
+    if (ingDebounceRef.current) clearTimeout(ingDebounceRef.current);
+    if (!value.trim()) { setIngRefSuggestions([]); return; }
+    ingDebounceRef.current = setTimeout(async () => {
+      setIngRefLoading(true);
+      try {
+        const res = await fetch(`/api/ingredient-reference?q=${encodeURIComponent(value)}&limit=10`);
+        if (!res.ok) return;
+        const data = await res.json() as { results: IngRefSuggestion[] };
+        setIngRefSuggestions(data.results);
+      } finally {
+        setIngRefLoading(false);
+      }
+    }, 220);
+  };
 
   // Filter recipes for reference (syrups, bitters, tinctures, shrubs, but not the current recipe being edited)
   const validReferenceRecipes = allRecipes.filter(
@@ -85,9 +632,32 @@ function SortableIngredientRow({
               {UNITS.map((u) => <MenuItem key={u.value} value={u.value}>{u.label}</MenuItem>)}
             </Select>
           </FormControl>
-          <TextField
-            size="small" placeholder="Ingredient name" value={ing.name}
-            onChange={(e) => onChange('name', e.target.value)}
+          <Autocomplete
+            freeSolo
+            options={ingRefSuggestions}
+            getOptionLabel={(opt) => typeof opt === 'string' ? opt : opt.name}
+            inputValue={ing.name}
+            onInputChange={(_, v) => { onChange('name', v); handleIngRefSearch(v); }}
+            onChange={(_, val) => { if (val && typeof val !== 'string') onChange('name', val.name); }}
+            loading={ingRefLoading}
+            renderOption={(props, option) => {
+              const opt = option as IngRefSuggestion;
+              return (
+                <Box component="li" {...props} key={opt.id}>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>{opt.name}</Typography>
+                    {(opt.subcategory || opt.brand) && (
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                        {[opt.subcategory, opt.brand].filter(Boolean).join(' · ')}
+                      </Typography>
+                    )}
+                  </Box>
+                </Box>
+              );
+            }}
+            renderInput={(params) => (
+              <TextField {...params} size="small" placeholder="Ingredient name" />
+            )}
             sx={{ flex: 1, minWidth: 150 }}
           />
         </Box>
@@ -108,12 +678,26 @@ function SortableIngredientRow({
               </Select>
             </FormControl>
           </Box>
-          <TextField
+          <Autocomplete
+            freeSolo
             fullWidth
-            size="small"
-            placeholder="Ingredient name"
-            value={ing.name}
-            onChange={(e) => onChange('name', e.target.value)}
+            options={ingRefSuggestions}
+            getOptionLabel={(opt) => typeof opt === 'string' ? opt : opt.name}
+            inputValue={ing.name}
+            onInputChange={(_, v) => { onChange('name', v); handleIngRefSearch(v); }}
+            onChange={(_, val) => { if (val && typeof val !== 'string') onChange('name', val.name); }}
+            loading={ingRefLoading}
+            renderOption={(props, option) => {
+              const opt = option as IngRefSuggestion;
+              return (
+                <Box component="li" {...props} key={opt.id}>
+                  <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>{opt.name}</Typography>
+                </Box>
+              );
+            }}
+            renderInput={(params) => (
+              <TextField {...params} size="small" placeholder="Ingredient name" />
+            )}
           />
         </Box>
 
@@ -221,6 +805,7 @@ function recipeToPrefill(r: Recipe): Partial<RecipeFormValues> {
     method: r.method ?? '',
     garnish: r.garnish ?? '',
     notes: r.notes ?? '',
+    source_credit: r.source_credit ?? '',
     difficulty: r.difficulty ?? '',
     tags: r.tags ?? [],
     is_public: Boolean(r.is_public),
@@ -252,7 +837,7 @@ const PREP_RECIPE_TYPES = ['syrup', 'bitter', 'tincture', 'shrub'] as const;
 // ── Main component ────────────────────────────────────────────────────────────
 const DEFAULT_VALUES: RecipeFormValues = {
   name: '', type: 'cocktail', glass_type: '', ice_type: '', method: '',
-  garnish: '', notes: '', difficulty: '', tags: [],
+  garnish: '', notes: '', source_credit: '', difficulty: '', tags: [],
   is_public: false, visibility: 'private', want_to_make: true, placeholder_icon: null,
   template_id: null, source_recipe_id: null,
   servings: 1,
@@ -278,6 +863,8 @@ export default function RecipeForm() {
   const [error, setError] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [parseDialogOpen, setParseDialogOpen] = useState(false);
+  const [textParseDialogOpen, setTextParseDialogOpen] = useState(false);
   const [templates, setTemplates] = useState<Array<{ id: string; name: string }>>([]);
   const [allRecipes, setAllRecipes] = useState<Array<{ id: string; name: string; type: string }>>([]);
 
@@ -379,6 +966,37 @@ export default function RecipeForm() {
     });
   };
 
+  // Apply AI-parsed recipe fields to the form
+  const applyParsed = (parsed: ParsedRecipe) => {
+    setValues((v) => {
+      const newIng = parsed.ingredients.length > 0
+        ? parsed.ingredients.map((i) => ({
+            id: crypto.randomUUID(),
+            name: i.name,
+            amount: i.amount,
+            unit: i.unit || preferredUnit,
+            referenced_recipe_id: null,
+          }))
+        : v.ingredients;
+
+      const newSteps = parsed.steps.length > 0
+        ? parsed.steps.map((s) => ({ id: crypto.randomUUID(), description: s }))
+        : v.steps;
+
+      return {
+        ...v,
+        name: parsed.name ?? v.name,
+        glass_type: parsed.glass_type ?? v.glass_type,
+        ice_type: parsed.ice_type ?? v.ice_type,
+        method: parsed.method ?? v.method,
+        garnish: parsed.garnish ?? v.garnish,
+        notes: parsed.notes ? (v.notes ? v.notes + '\n\n' + parsed.notes : parsed.notes) : v.notes,
+        ingredients: newIng,
+        steps: newSteps,
+      };
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!values.name.trim()) { setError('Recipe name is required'); return; }
@@ -447,9 +1065,52 @@ export default function RecipeForm() {
         Back
       </Button>
 
-      <Typography variant="h4" gutterBottom>
-        {isEdit ? 'Edit Recipe' : 'New Recipe'}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+        <Typography variant="h4">
+          {isEdit ? 'Edit Recipe' : 'New Recipe'}
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Tooltip title="Scan a recipe image — AI will pre-fill the form">
+            <IconButton
+              onClick={() => setParseDialogOpen(true)}
+              sx={{
+                color: 'primary.main',
+                bgcolor: 'rgba(212,175,55,0.1)',
+                border: '1px solid',
+                borderColor: 'rgba(212,175,55,0.3)',
+                '&:hover': { bgcolor: 'rgba(212,175,55,0.2)' },
+              }}
+            >
+              <DocumentScannerIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Paste freeform recipe text — AI will pre-fill the form">
+            <IconButton
+              onClick={() => setTextParseDialogOpen(true)}
+              sx={{
+                color: 'primary.main',
+                bgcolor: 'rgba(212,175,55,0.1)',
+                border: '1px solid',
+                borderColor: 'rgba(212,175,55,0.3)',
+                '&:hover': { bgcolor: 'rgba(212,175,55,0.2)' },
+              }}
+            >
+              <TextSnippetIcon />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      </Box>
+
+      <ImageParseDialog
+        open={parseDialogOpen}
+        onClose={() => setParseDialogOpen(false)}
+        onApply={applyParsed}
+      />
+      <TextParseDialog
+        open={textParseDialogOpen}
+        onClose={() => setTextParseDialogOpen(false)}
+        onApply={applyParsed}
+      />
 
       {values.source_recipe_id && (
         <Alert severity="info" sx={{ mb: 2 }}>
@@ -564,12 +1225,30 @@ export default function RecipeForm() {
         sx={{ mb: 2 }}
       />
 
+      {/* ── Credit / Source ── */}
+      <TextField
+        fullWidth
+        label="Credit / Source (optional)"
+        placeholder="e.g. Death & Co, Jim Meehan, Cocktail Codex p. 42"
+        value={values.source_credit}
+        onChange={(e) => {
+          const credit = e.target.value;
+          set('source_credit', credit);
+          // Force private when a credit is set
+          if (credit.trim() && values.visibility !== 'private') {
+            set('visibility', 'private');
+          }
+        }}
+        helperText="Attribute the recipe to its original creator or source. Credited recipes are always private."
+        sx={{ mb: 2 }}
+      />
+
       {/* ── Visibility control ── */}
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-        <FormControl size="small" sx={{ minWidth: 200 }}>
+        <FormControl size="small" sx={{ minWidth: 200 }} disabled={Boolean(values.source_credit.trim())}>
           <InputLabel>Visibility</InputLabel>
           <Select
-            value={values.visibility}
+            value={values.source_credit.trim() ? 'private' : values.visibility}
             onChange={(e) => set('visibility', e.target.value as 'private' | 'friends' | 'public')}
             label="Visibility"
           >
@@ -577,6 +1256,11 @@ export default function RecipeForm() {
             <MenuItem value="friends">Friends only</MenuItem>
             <MenuItem value="public">Public (everyone)</MenuItem>
           </Select>
+          {values.source_credit.trim() && (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+              Locked to private — credited recipes can't be shared publicly.
+            </Typography>
+          )}
         </FormControl>
 
         <TextField

@@ -8,6 +8,7 @@ declare namespace Cloudflare {
     SESSIONS: KVNamespace;
     IMAGES: R2Bucket;
     ASSETS: Fetcher;
+    AI: Ai;
     GOOGLE_CLIENT_ID: string;
     GOOGLE_CLIENT_SECRET: string;
     SESSION_SECRET: string;

@@ -53,6 +53,7 @@ export interface Recipe {
   method: RecipeMethod | null;
   garnish: string | null;
   notes: string | null;
+  source_credit: string | null;
   difficulty: Difficulty | null;
   tags: string[];
   version: number;
@@ -141,6 +142,7 @@ export interface RecipeFormValues {
   method: string;
   garnish: string;
   notes: string;
+  source_credit: string;
   difficulty: string;
   tags: string[];
   is_public: boolean;

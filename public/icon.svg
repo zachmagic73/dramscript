@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <!-- Background gradient -->
+    <radialGradient id="bg" cx="40%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#2E2520"/>
+      <stop offset="100%" stop-color="#141210"/>
+    </radialGradient>
+
+    <!-- Whiskey gradient — deep amber to dark red-brown -->
+    <linearGradient id="whiskeyGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#C87820"/>
+      <stop offset="100%" stop-color="#7A2208"/>
+    </linearGradient>
+
+    <!-- Amber glow around ice -->
+    <radialGradient id="amberGlow" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#D4901A" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#8B3500" stop-opacity="0.0"/>
+    </radialGradient>
+
+    <!-- Ice sphere gradient — bright highlight top-left to cool base -->
+    <radialGradient id="iceGrad" cx="32%" cy="28%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="45%" stop-color="#E8EDF0"/>
+      <stop offset="100%" stop-color="#A8B4BC"/>
+    </radialGradient>
+
+    <!-- Glass rim gradient (horizontal) -->
+    <linearGradient id="rimGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#888888" stop-opacity="0.8"/>
+      <stop offset="30%" stop-color="#D8D8D8" stop-opacity="0.9"/>
+      <stop offset="70%" stop-color="#C0C0C0" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#787878" stop-opacity="0.8"/>
+    </linearGradient>
+
+    <!-- Inner glass body near-side reflection -->
+    <linearGradient id="leftWall" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#CCCCCC" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#CCCCCC" stop-opacity="0.0"/>
+    </linearGradient>
+    <linearGradient id="rightWall" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#888888" stop-opacity="0.0"/>
+      <stop offset="100%" stop-color="#AAAAAA" stop-opacity="0.30"/>
+    </linearGradient>
+
+    <!-- Clip the glass interior content -->
+    <clipPath id="glassInterior">
+      <polygon points="140,196 372,196 356,385 156,385"/>
+    </clipPath>
+  </defs>
+
+  <!-- ── BACKGROUND ── -->
+  <rect width="512" height="512" rx="90" fill="url(#bg)"/>
+
+  <!-- ── GLASS ── -->
+
+  <!-- Glass body fill (dark translucent) -->
+  <polygon points="126,178 386,178 370,392 142,392"
+    fill="#0D0B09" opacity="0.55"/>
+
+  <!-- Whiskey + amber glow, clipped to inner glass -->
+  <g clip-path="url(#glassInterior)">
+    <!-- Base spirit fill -->
+    <rect x="100" y="285" width="320" height="105" fill="url(#whiskeyGrad)"/>
+    <!-- Amber meniscus / glow around the ice sphere -->
+    <ellipse cx="256" cy="282" rx="118" ry="52" fill="url(#amberGlow)"/>
+    <!-- Dark tannin shadow at base -->
+    <rect x="140" y="355" width="230" height="35" fill="#5A1800" opacity="0.55"/>
+    <!-- Surface shimmer line -->
+    <ellipse cx="256" cy="285" rx="98" ry="6" fill="#E8A030" opacity="0.25"/>
+  </g>
+
+  <!-- Left glass wall highlight -->
+  <polygon points="126,178 142,196 156,385 142,392" fill="url(#leftWall)"/>
+  <!-- Right glass wall highlight -->
+  <polygon points="386,178 370,196 356,385 370,392" fill="url(#rightWall)"/>
+
+  <!-- Glass outline (outer trapezoid) -->
+  <polygon points="126,178 386,178 370,392 142,392"
+    fill="none" stroke="url(#rimGrad)" stroke-width="5.5"
+    stroke-linejoin="round" opacity="0.80"/>
+
+  <!-- Rim ellipse — top opening -->
+  <ellipse cx="256" cy="178" rx="130" ry="17"
+    fill="#161210" stroke="url(#rimGrad)" stroke-width="4.5" opacity="0.85"/>
+  <!-- Rim inner highlight (thin bright arc) -->
+  <path d="M 148 174 A 110 14 0 0 1 364 174" fill="none"
+    stroke="#E8E8E8" stroke-width="2.5" opacity="0.45" stroke-linecap="round"/>
+
+  <!-- Glass base bar -->
+  <rect x="145" y="389" width="222" height="11" rx="4"
+    fill="#A0A0A0" opacity="0.28"/>
+
+  <!-- ── ICE SPHERE ── -->
+  <circle cx="256" cy="258" r="84" fill="url(#iceGrad)"/>
+
+  <!-- Ice primary specular highlight (top-left) -->
+  <ellipse cx="221" cy="222" rx="28" ry="18" fill="white" opacity="0.80"
+    transform="rotate(-28,221,222)"/>
+  <!-- Ice secondary highlight (small, offset) -->
+  <ellipse cx="295" cy="238" rx="10" ry="7" fill="white" opacity="0.38"
+    transform="rotate(15,295,238)"/>
+  <!-- Ice subtle edge darkening (bottom-right) -->
+  <circle cx="256" cy="258" r="84" fill="none"
+    stroke="#7090A0" stroke-width="3" opacity="0.35"/>
+
+  <!-- Ice cast shadow on whiskey -->
+  <ellipse cx="256" cy="338" rx="62" ry="11" fill="#300D00" opacity="0.32"/>
+</svg>

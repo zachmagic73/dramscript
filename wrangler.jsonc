@@ -33,5 +33,8 @@
       "binding": "IMAGES",
       "bucket_name": "dramscript-images"
     }
-  ]
+  ],
+  "ai": {
+    "binding": "AI"
+  }
 }

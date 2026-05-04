@@ -28,7 +28,7 @@ Hosted entirely on Cloudflare's free tier, following the same architecture as **
 | Service | Use Case | Cost |
 |---|---|---|
 | **Cloudflare R2** | Recipe image uploads and storage | Free tier: 10 GB storage, 1M writes/mo |
-| **Cloudflare Workers AI** | AI image-to-recipe parsing (Phase 11) | Free tier: 10K neurons/day |
+| **Cloudflare Workers AI** | AI drink discovery suggestions (Phase 8) + AI image-to-recipe parsing (Phase 12) | Free tier: 10K neurons/day |
 
 Both are Cloudflare-native and fit within the free tier for an early-stage app. **No paid services are required through the first several phases.** The only potential cost trigger is R2 egress if image traffic becomes very high, which is unlikely early on. R2 also has no egress fees to the internet (unlike S3).
 
@@ -567,7 +567,63 @@ CREATE TABLE ingredient_reference (
 
 ---
 
-### Phase 6 — Ratings & Comments
+### Phase 6 — Ingredient Inventory & Shopping List
+**Goal:** Users manage their home bar and generate shopping lists from recipes they want to make.
+
+- [x] **Ingredient reference DB**: seed `ingredient_reference` with a curated list of common spirits, liqueurs, mixers, bitters, syrups, etc. — each with ABV, flavor notes, category, and description
+- [x] Autocomplete in recipe ingredient forms backed by `ingredient_reference` (fuzzy search, freeSolo — allows custom entries)
+- [x] Ingredient inventory management page (add/remove/categorize ingredients from your home bar)
+- [x] Inventory UI suggests from `ingredient_reference` with full details on hover/tap
+- [x] **Want to make**: flag any recipe as "want to make" (`want_to_make = 1`)
+- [x] **Shopping list**: generate a consolidated shopping list of all ingredients missing across all "want to make" flagged recipes (deduped, sorted by how many recipes they unblock) — includes both own recipes and saved recipes with status='want_to_make'
+- [x] "Missing ingredient" callout: on any recipe detail, show which ingredients you don't have (exact vs. fuzzy match with callout) and indicate how to manage inventory
+
+---
+
+### Phase 7 — Calculators ✅
+**Goal:** Utility tools for making and scaling cocktails.
+
+- [x] **Batch calculator**: input a recipe's single-serving quantities + number of servings → scaled output with dilution adjustment guidance
+- [x] **ABV calculator**: input ingredients with their ABV and volumes → estimated final ABV (accounting for dilution)
+- [x] **Cost calculator**: tag ingredients with a price (cost per bottle + bottle size) → cost per cocktail and cost per batch
+
+---
+
+### Phase 8 — Drink Discovery
+**Goal:** A unified "Discover" destination with three modes for finding what to drink next. All modes share the same result surface (recipe cards + one-line rationale) and include an AI suggestions layer for recommendations beyond the in-app database.
+
+> **Why unified?** Bartender's Choice, Spirit + Modifier Finder, and What Can I Make all answer the same question — "what should I drink next?" — from different entry points. One discovery destination is cleaner than three separate pages. Modes can be pre-selected by context (e.g., tapping "What can I make?" from the inventory page pre-selects Mode 1). The AI layer is also built once and applies to all three.
+
+#### Mode 1 — What Can I Make (Inventory-Based)
+- [x] Query your own + saved + friends' recipes, filtered by your current inventory
+- [x] Show recipes where you have **all** ingredients (exact match)
+- [x] Show recipes where you're **missing 1–2 ingredients** (with a "needed to unlock" callout per ingredient)
+- [x] **AI suggestions**: given your current inventory, the AI generates 3–5 original cocktail ideas (not necessarily in the database) with a brief rationale — e.g., "You have mezcal, Aperol, and lime; try a Naked and Famous variation…"
+
+#### Mode 2 — Bartender's Choice (Mood-Based)
+- [x] Present a bank of flavor/mood descriptor chips (citrusy, boozy, smoky, refreshing, bitter, tropical, cozy, floral, spirit-forward, low ABV, etc.)
+- [x] User selects 2–3 descriptors
+- [x] App queries templates and public recipes whose tags, flavor notes, or descriptions match the selected descriptors; ranked by match count and avg rating
+- [x] Results shown with a one-line rationale (e.g., "Matches: citrusy, refreshing")
+- [x] User can tap any result to view the full recipe or start a riff
+- [x] **AI suggestions**: the AI receives the selected mood descriptors and returns 3–5 cocktail suggestions (name + one-sentence pitch) covering classics or creative options not necessarily in the database
+
+#### Mode 3 — Spirit + Modifier Finder (Ingredient Exploration)
+- [x] Two-step UI: pick a base spirit family (bourbon, gin, rum, mezcal, vodka, tequila, brandy, etc.), then pick a modifier type (vermouth, amaro, citrus, syrup, bitter, liqueur, etc.)
+- [x] App queries templates and public recipes whose ingredients include both the selected spirit family and modifier family (using synonym expansion built into search)
+- [x] Results sorted by popularity (riff count + avg rating)
+- [x] Optionally filter to only cocktails makeable with your current inventory
+- [x] **AI suggestions**: the AI receives the spirit + modifier pair and returns 3–5 notable or creative cocktails built on that combination — covering both classics and lesser-known gems not in the database
+
+#### Shared AI Implementation
+- [x] Single Worker endpoint `/discover/ai-suggestions` with a `mode` flag (`inventory` | `mood` | `spirit-modifier`) and a context payload per mode
+- [x] Uses Cloudflare Workers AI (text generation model) with a structured prompt per mode
+- [x] Results rendered as a distinct "AI Picks" card section below database results, clearly labeled as AI-generated
+- [x] User can tap any AI suggestion to search for it in the app or open a pre-filled new recipe form
+
+---
+
+### Phase 9 — Ratings & Comments
 **Goal:** Community engagement on recipes.
 
 - [ ] 1–5 star rating on any public recipe
@@ -578,48 +634,7 @@ CREATE TABLE ingredient_reference (
 
 ---
 
-### Phase 7 — Ingredient Inventory, Discovery & Bartender Tools
-**Goal:** Users maintain a home bar ingredient list and discover makeable recipes. Includes guided cocktail discovery tools.
-
-- [ ] **Ingredient reference DB**: seed `ingredient_reference` with a curated list of common spirits, liqueurs, mixers, bitters, syrups, etc. — each with ABV, flavor notes, category, and description
-- [ ] Autocomplete in recipe ingredient forms backed by `ingredient_reference` (fuzzy search)
-- [ ] Ingredient inventory management (add/remove/categorize ingredients from your home bar)
-- [ ] Inventory UI suggests from `ingredient_reference` with full details on hover/tap
-- [ ] "What can I make?" page: queries your own + saved + friends' recipes, filters by ingredients you have
-- [ ] Show recipes where you have all ingredients (exact match) and recipes where you're missing 1–2 ingredients
-- [ ] "Missing ingredient" list: what to buy to unlock the most new recipes
-- [x] **Want to make**: flag any recipe as "want to make" (`want_to_make = 1`)
-- [ ] **Shopping list**: generate a consolidated shopping list of all ingredients you're missing across all "want to make" flagged recipes (deduped, sorted by how many recipes they unblock)
-
-#### Bartender's Choice
-The app acts as the bartender — user picks a mood, the app picks the drink.
-
-- [ ] Present a bank of flavor/mood descriptors (e.g., citrusy, boozy, smoky, refreshing, bitter, tropical, cozy, floral, spirit-forward, low ABV, etc.)
-- [ ] User selects 2–3 descriptors
-- [ ] App queries templates and public recipes whose tags, flavor notes, or descriptions match the selected descriptors, ranked by match count and avg rating
-- [ ] Results shown as "suggestions" with a one-line rationale (e.g., "Matches: citrusy, refreshing")
-- [ ] User can tap any suggestion to view the full recipe or start a riff
-
-#### Spirit + Modifier Finder
-A quick builder tool: pick a base spirit and a modifier, see what cocktails they anchor.
-
-- [ ] Two-step UI: first pick a base spirit (bourbon, gin, rum, mezcal, vodka, tequila, brandy, etc.), then pick a modifier type (vermouth, amaro, citrus, syrup, bitter, liqueur, etc.)
-- [ ] App queries templates and public recipes whose ingredients include both the selected spirit family and the modifier family (using the synonym expansion already built into search)
-- [ ] Results sorted by popularity (riff count + avg rating)
-- [ ] Optionally filter results to only cocktails makeable from the user's current inventory
-
----
-
-### Phase 8 — Calculators
-**Goal:** Utility tools for making cocktails.
-
-- [ ] **Batch calculator**: input a recipe's single-serving quantities + number of servings → scaled output with dilution adjustment guidance
-- [ ] **ABV calculator**: input ingredients with their ABV and volumes → estimated final ABV (accounting for dilution)
-- [ ] **Cost calculator**: tag ingredients with a price (cost per bottle + bottle size) → cost per cocktail and cost per batch
-
----
-
-### Phase 9 — Sharing & Saving
+### Phase 10 — Sharing & Saving
 **Goal:** Get recipes out of the app and let users collect from others.
 
 - [ ] Save a public recipe to your own journal (persists a copy in `saved_recipes`)
@@ -629,7 +644,7 @@ A quick builder tool: pick a base spirit and a modifier, see what cocktails they
 
 ---
 
-### Phase 10 — Bar Menus
+### Phase 11 — Bar Menus
 **Goal:** Build and publish a curated cocktail menu from your journal.
 
 - [ ] Create named bar menus
@@ -640,14 +655,28 @@ A quick builder tool: pick a base spirit and a modifier, see what cocktails they
 
 ---
 
-### Phase 11 — AI Recipe Parsing
+### Phase 12 — AI Recipe Parsing
 **Goal:** Point your camera at a recipe card or handwritten recipe, get a structured entry.
 
-- [ ] Image upload UI ("Import from photo")
-- [ ] Worker sends image to Cloudflare Workers AI (vision model, e.g., `@cf/llava-1.5-7b-hf` or similar)
-- [ ] Prompt instructs the model to extract name, ingredients, steps, and return structured JSON
-- [ ] Pre-fill recipe form from parsed JSON; user reviews and confirms
-- [ ] Fallback gracefully if AI confidence is low
+- [x] Image upload UI ("Import from photo") — scan icon in top-left of New Recipe form
+- [x] Worker sends image to Cloudflare Workers AI (`@cf/llava-hf/llava-1.5-7b-hf` vision model)
+- [x] Prompt instructs the model to extract name, ingredients, steps, glass, ice, method, garnish, and return structured JSON
+- [x] Pre-fill recipe form from parsed JSON; user reviews and confirms via preview dialog
+- [x] Fallback gracefully if AI confidence is low (clear error message, retry option)
+- [x] Image is NOT stored — used only for parsing
+
+---
+
+### Phase 13 — OCR + Structured Parser (Hardening)
+**Goal:** Improve reliability by separating OCR from semantic parsing.
+
+- [x] Keep dedicated OCR as the first step (raw full text extraction)
+- [x] Send full OCR text to a second structured model parser (e.g., Gemini-style text model) that outputs strict JSON only
+- [x] Enforce schema validation on parsed JSON before applying to the form
+- [x] Add confidence scoring per section (title, ingredients, steps) and surface warnings in UI
+- [x] Keep title optional for now; prioritize ingredients + steps correctness
+- [ ] Add regression test fixtures for common layouts (two-column recipe cards, screenshots, handwritten notes)
+- [x] Add a parser comparison mode in diagnostics (OCR-only classifier vs OCR+model parser)
 
 ---
 
@@ -668,7 +697,7 @@ Features planned for later phases, after the core app is stable:
 | **Private vs. public batch printing** | Later | Print-optimized batch sheet for an event (scaled recipe + cost per drink). |
 | **Community challenges** | Later | Time-limited themes: "best aperitivo riff this month". Voting, winner badge. |
 
-> **Decisions incorporated into phases above:** Version history (Phase 2), flavor profile tags (Phase 2), difficulty rating (Phase 2), occasion/season tags (merged into unified tags field, Phase 2), spirits/ingredient reference database (Phase 7), shopping list via "want to make" flag (Phase 7), default units as user profile setting (Phase 1), duplicate recipe merged into "Create riff of" (Phase 2).
+> **Decisions incorporated into phases above:** Version history (Phase 2), flavor profile tags (Phase 2), difficulty rating (Phase 2), occasion/season tags (merged into unified tags field, Phase 2), spirits/ingredient reference database (Phase 6), shopping list via "want to make" flag (Phase 6), default units as user profile setting (Phase 1), duplicate recipe merged into "Create riff of" (Phase 2). Bartender's Choice, Spirit + Modifier Finder, and What Can I Make merged into unified Drink Discovery page (Phase 8) with AI suggestions layer. Ratings & Comments moved to Phase 9 (after utility tools).
 
 ---
 
@@ -697,8 +726,9 @@ cocktail-journal/
       RecipeForm.tsx           — Add / edit
       Profile.tsx
       Friends.tsx
-      Discover.tsx
-      WhatCanIMake.tsx
+      Inventory.tsx            — Home bar management + shopping list
+      Discover.tsx             — Unified: What Can I Make / Bartender's Choice / Spirit+Modifier
+      Calculators.tsx
       BarMenus.tsx
     components/
       RecipeCard.tsx
@@ -721,7 +751,8 @@ cocktail-journal/
     friends.ts                 — Friends system handlers
     images.ts                  — R2 presign + image management
     search.ts                  — Full-text search
-    ai.ts                      — Workers AI recipe parsing
+    ai.ts                      — Workers AI: discovery suggestions + recipe image parsing
+    discover.ts                — Drink Discovery query handlers
 
   public/
     manifest.json              — PWA manifest
@@ -739,7 +770,7 @@ cocktail-journal/
 | D1 | 5 GB storage, 25M row reads/day, 50K writes/day | None for early stage |
 | KV | 100K reads/day, 1K writes/day, 1 GB storage | Low — writes only on login |
 | R2 | 10 GB storage, 1M Class A ops/month | Fine until significant image volume |
-| Workers AI | 10K "neurons"/day (varies by model) | Only relevant in Phase 11 |
+| Workers AI | 10K "neurons"/day (varies by model) | Phase 8 (discovery AI) + Phase 12 (image parsing) |
 
 The app can realistically grow to hundreds of users before hitting any free tier limits.
 
@@ -769,10 +800,12 @@ wrangler secret put SESSION_SECRET    # for signing session tokens
 | 2 | Recipe CRUD (core journal) | — |
 | 3 | Photo uploads | R2 |
 | 4 | Templates & riffs | — |
-| 5 | Friends + discovery | — |
-| 6 | Ratings + comments | — |
-| 7 | Ingredient inventory + makeable | — |
-| 8 | Batch / ABV / cost calculators | — |
-| 9 | Sharing + save others' recipes | — |
-| 10 | Bar menus | — |
-| 11 | AI image parsing | Workers AI |
+| 5 | Friends + social discovery | — |
+| 6 | Ingredient inventory + shopping list | — |
+| 7 | Batch / ABV / cost calculators | — |
+| 8 | Drink Discovery (What Can I Make, Bartender's Choice, Spirit + Modifier + AI) | Workers AI |
+| 9 | Ratings + comments | — |
+| 10 | Sharing + save others' recipes | — |
+| 11 | Bar menus | — |
+| 12 | AI image parsing | — |
+| 13 | OCR + structured parser hardening | Workers AI / external text model |

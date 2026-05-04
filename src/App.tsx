@@ -6,12 +6,15 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Discover from './pages/Discover';
+import SuggestADrink from './pages/SuggestADrink';
 import Friends from './pages/Friends';
 import RecipeDetail from './pages/RecipeDetail';
 import RecipeForm from './pages/RecipeForm';
 import Profile from './pages/Profile';
 import Templates from './pages/Templates';
 import TemplateDetail from './pages/TemplateDetail';
+import Inventory from './pages/Inventory';
+import Calculators from './pages/Calculators';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -50,12 +53,15 @@ function AppRoutes() {
       >
         <Route index element={<Dashboard />} />
         <Route path="discover" element={<Discover />} />
+        <Route path="suggest" element={<SuggestADrink />} />
         <Route path="friends" element={<Friends />} />
         <Route path="recipes/new" element={<RecipeForm />} />
         <Route path="recipes/:id" element={<RecipeDetail />} />
         <Route path="recipes/:id/edit" element={<RecipeForm />} />
         <Route path="templates" element={<Templates />} />
         <Route path="templates/:id" element={<TemplateDetail />} />
+        <Route path="inventory" element={<Inventory />} />
+        <Route path="calculators" element={<Calculators />} />
         <Route path="profile" element={<Profile />} />
       </Route>
     </Routes>

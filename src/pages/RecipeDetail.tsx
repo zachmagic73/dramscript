@@ -1,10 +1,10 @@
 import { useEffect, useState, type MouseEvent } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Typography, Chip, Button, Divider, IconButton, Dialog,
   DialogTitle, DialogContent, DialogActions, Alert, CircularProgress,
   List, ListItem, ListItemText, Tooltip, Paper, Menu, MenuItem, useMediaQuery, useTheme,
-  ToggleButtonGroup, ToggleButton, TextField,
+  ToggleButtonGroup, ToggleButton, TextField, Collapse,
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -13,6 +13,10 @@ import HistoryIcon from '@mui/icons-material/History';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ImageIcon from '@mui/icons-material/Image';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CalculateIcon from '@mui/icons-material/Calculate';
+import { Link as RouterLink } from 'react-router-dom';
 import type { Recipe, RecipeVersion } from '../types';
 import ImageManager from '../components/ImageManager';
 import { useAuth } from '../hooks/useAuth';
@@ -31,6 +35,11 @@ function formatFieldLabel(value: string): string {
 export default function RecipeDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const backTo: string = (location.state as { from?: string } | null)?.from ?? '/';
+  const backLabel: string = (location.state as { fromLabel?: string } | null)?.fromLabel
+    ? `Back to ${(location.state as { fromLabel: string }).fromLabel}`
+    : 'Back to journal';
   const { user } = useAuth();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -44,6 +53,7 @@ export default function RecipeDetail() {
   const [showVersions, setShowVersions] = useState(false);
   const [showImages, setShowImages] = useState(false);
   const [actionsAnchorEl, setActionsAnchorEl] = useState<null | HTMLElement>(null);
+  const [calcAnchorEl, setCalcAnchorEl] = useState<null | HTMLElement>(null);
   const [versions, setVersions] = useState<RecipeVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [previewSnapshot, setPreviewSnapshot] = useState<Recipe | null>(null);
@@ -53,6 +63,11 @@ export default function RecipeDetail() {
   const [savedStatus, setSavedStatus] = useState<'want_to_make' | 'made' | null>(null);
   const [savedNotes, setSavedNotes] = useState('');
   const [notesDirty, setNotesDirty] = useState(false);
+
+  // Ingredient coverage (vs. user's inventory)
+  interface IngredientMatch { name: string; match: 'exact' | 'fuzzy' | 'missing'; matched_by?: string; }
+  const [coverage, setCoverage] = useState<{ has_inventory: boolean; ingredients: IngredientMatch[] } | null>(null);
+  const [coverageExpanded, setCoverageExpanded] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -70,6 +85,17 @@ export default function RecipeDetail() {
         setError('Recipe not found.');
       } finally {
         setLoading(false);
+      }
+
+      // Load inventory coverage in the background (non-blocking)
+      try {
+        const covRes = await fetch(`/api/recipes/${id}/coverage`);
+        if (covRes.ok) {
+          const covData = await covRes.json() as { has_inventory: boolean; ingredients: Array<{ name: string; match: 'exact' | 'fuzzy' | 'missing'; matched_by?: string }> };
+          setCoverage(covData);
+        }
+      } catch {
+        // coverage is non-critical; ignore errors
       }
     })();
   }, [id]);
@@ -217,16 +243,17 @@ export default function RecipeDetail() {
   const isOwner = user?.id === recipe.user_id;
   const primaryImage = recipe.images?.find((i) => i.is_primary);
   const ownerMenuOpen = Boolean(actionsAnchorEl);
+  const calcMenuOpen = Boolean(calcAnchorEl);
 
   return (
     <Box>
       {/* Back */}
       <Button
         startIcon={<ArrowBackIcon />}
-        onClick={() => navigate('/')}
+        onClick={() => navigate(backTo)}
         sx={{ mb: 2, color: 'text.secondary' }}
       >
-        Back to journal
+        {backLabel}
       </Button>
 
       {/* Header */}
@@ -267,6 +294,16 @@ export default function RecipeDetail() {
                   <MenuItem onClick={() => { setActionsAnchorEl(null); void handleRiff(); }}>
                     Create riff of
                   </MenuItem>
+                  <Divider />
+                  <MenuItem onClick={() => { setActionsAnchorEl(null); navigate(`/calculators?recipeId=${id}&tab=batch`); }}>
+                    Batch calculator
+                  </MenuItem>
+                  <MenuItem onClick={() => { setActionsAnchorEl(null); navigate(`/calculators?recipeId=${id}&tab=abv`); }}>
+                    ABV calculator
+                  </MenuItem>
+                  <MenuItem onClick={() => { setActionsAnchorEl(null); navigate(`/calculators?recipeId=${id}&tab=cost`); }}>
+                    Cost calculator
+                  </MenuItem>
                   <MenuItem onClick={() => { setActionsAnchorEl(null); navigate(`/recipes/${id}/edit`); }}>
                     Edit
                   </MenuItem>
@@ -295,6 +332,11 @@ export default function RecipeDetail() {
                     <ContentCopyIcon />
                   </IconButton>
                 </Tooltip>
+                <Tooltip title="Open in calculators">
+                  <IconButton onClick={(e) => setCalcAnchorEl(e.currentTarget)}>
+                    <CalculateIcon />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title="Edit">
                   <IconButton onClick={() => navigate(`/recipes/${id}/edit`)}>
                     <EditIcon />
@@ -310,11 +352,18 @@ export default function RecipeDetail() {
           </>
         )}
         {!isOwner && (
-          <Tooltip title="Create riff of">
-            <IconButton onClick={handleRiff}>
-              <ContentCopyIcon />
-            </IconButton>
-          </Tooltip>
+          <Box sx={{ display: 'flex', gap: 0.5 }}>
+            <Tooltip title="Create riff of">
+              <IconButton onClick={handleRiff}>
+                <ContentCopyIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Open in calculators">
+              <IconButton onClick={(e) => setCalcAnchorEl(e.currentTarget)}>
+                <CalculateIcon />
+              </IconButton>
+            </Tooltip>
+          </Box>
         )}
       </Box>
 
@@ -435,7 +484,70 @@ export default function RecipeDetail() {
       {/* Ingredients */}
       {recipe.ingredients && recipe.ingredients.length > 0 && (
         <Box sx={{ mb: 3 }}>
-          <Typography variant="h6" gutterBottom>Ingredients</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+            <Typography variant="h6">Ingredients</Typography>
+            {coverage?.has_inventory && (() => {
+              const missing = coverage.ingredients.filter((i) => i.match === 'missing').length;
+              const fuzzy  = coverage.ingredients.filter((i) => i.match === 'fuzzy').length;
+              if (missing === 0 && fuzzy === 0) {
+                return (
+                  <Chip
+                    icon={<CheckCircleOutlineIcon />} label="All in your bar"
+                    size="small" color="success" variant="outlined"
+                    onClick={() => setCoverageExpanded((p) => !p)}
+                    sx={{ cursor: 'pointer' }}
+                  />
+                );
+              }
+              return (
+                <Chip
+                  icon={<WarningAmberIcon />}
+                  label={`${missing} missing${fuzzy > 0 ? `, ${fuzzy} fuzzy` : ''}`}
+                  size="small" color={missing > 0 ? 'warning' : 'default'} variant="outlined"
+                  onClick={() => setCoverageExpanded((p) => !p)}
+                  sx={{ cursor: 'pointer' }}
+                />
+              );
+            })()}
+          </Box>
+
+          {/* Expandable coverage detail */}
+          {coverage?.has_inventory && (
+            <Collapse in={coverageExpanded}>
+              <Box sx={{ mb: 1.5, p: 1.5, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Your bar coverage — <RouterLink to="/inventory" style={{ color: 'inherit' }}>manage inventory</RouterLink>
+                </Typography>
+                {coverage.ingredients.map((ing, i) => (
+                  <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
+                    {ing.match === 'exact' && <CheckCircleOutlineIcon sx={{ fontSize: 14, color: 'success.main', flexShrink: 0 }} />}
+                    {ing.match === 'fuzzy' && <WarningAmberIcon sx={{ fontSize: 14, color: 'warning.main', flexShrink: 0 }} />}
+                    {ing.match === 'missing' && <Box sx={{ width: 14, height: 14, flexShrink: 0 }} />}
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        flex: 1,
+                        color: ing.match === 'exact' ? 'success.main'
+                          : ing.match === 'fuzzy' ? 'warning.main'
+                          : 'text.disabled',
+                      }}
+                    >
+                      {ing.name}
+                      {ing.match === 'fuzzy' && ing.matched_by && (
+                        <Typography component="span" variant="caption" color="text.secondary">
+                          {' '}(matched "{ing.matched_by}" — verify)
+                        </Typography>
+                      )}
+                      {ing.match === 'missing' && (
+                        <Typography component="span" variant="caption" color="text.disabled"> — not in your bar</Typography>
+                      )}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Collapse>
+          )}
+
           <List dense>
             {recipe.ingredients.map((ing) => (
               <ListItem key={ing.id} disableGutters sx={{ py: 0.5, flexDirection: 'column', alignItems: 'flex-start' }}>
@@ -498,6 +610,40 @@ export default function RecipeDetail() {
           </Box>
         </>
       )}
+
+      {/* Credit / Source */}
+      {recipe.source_credit && (
+        <>
+          <Divider sx={{ my: 2 }} />
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Credit / Source
+            </Typography>
+            <Typography variant="body2" sx={{ mt: 0.5 }}>
+              {recipe.source_credit}
+            </Typography>
+          </Box>
+        </>
+      )}
+
+      {/* ── Calculator dropdown menu ── */}
+      <Menu
+        anchorEl={calcAnchorEl}
+        open={calcMenuOpen}
+        onClose={() => setCalcAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <MenuItem onClick={() => { setCalcAnchorEl(null); navigate(`/calculators?recipeId=${id}&tab=batch`); }}>
+          Batch calculator
+        </MenuItem>
+        <MenuItem onClick={() => { setCalcAnchorEl(null); navigate(`/calculators?recipeId=${id}&tab=abv`); }}>
+          ABV calculator
+        </MenuItem>
+        <MenuItem onClick={() => { setCalcAnchorEl(null); navigate(`/calculators?recipeId=${id}&tab=cost`); }}>
+          Cost calculator
+        </MenuItem>
+      </Menu>
 
       {/* ── Delete confirmation ── */}
       <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)}>

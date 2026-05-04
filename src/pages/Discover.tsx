@@ -15,7 +15,6 @@ export default function Discover() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Filters
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<RecipeType | ''>('');
   const [difficultyFilter, setDifficultyFilter] = useState<Difficulty | ''>('');
@@ -35,35 +34,26 @@ export default function Discover() {
       const data = (await response.json()) as { recipes: Recipe[] };
       setRecipes(data.recipes || []);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to fetch recipes';
-      setError(msg);
+      setError(err instanceof Error ? err.message : 'Failed to fetch recipes');
     } finally {
       setLoading(false);
     }
   }, [search, typeFilter, difficultyFilter]);
 
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      fetchRecipes();
-    }, 300); // Debounce search
-
+    const timeout = setTimeout(fetchRecipes, 300);
     return () => clearTimeout(timeout);
   }, [fetchRecipes]);
-
-  const handleRecipeClick = (recipeId: string) => {
-    navigate(`/recipes/${recipeId}`);
-  };
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 2 }}>
       <Typography variant="h4" sx={{ mb: 1 }}>
-        Discover Recipes
+        Discover
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         Explore cocktails shared by the community and your friends
       </Typography>
 
-      {/* Search & filters */}
       <Box sx={{ mb: 3, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
         <TextField
           placeholder="Search recipes..."
@@ -87,9 +77,7 @@ export default function Discover() {
             onChange={(e) => setTypeFilter(e.target.value as RecipeType | '')}>
             <MenuItem value="">All Types</MenuItem>
             {RECIPE_TYPES.map((t) => (
-              <MenuItem key={t.value} value={t.value}>
-                {t.label}
-              </MenuItem>
+              <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
             ))}
           </Select>
         </FormControl>
@@ -101,15 +89,12 @@ export default function Discover() {
             onChange={(e) => setDifficultyFilter(e.target.value as Difficulty | '')}>
             <MenuItem value="">All Levels</MenuItem>
             {DIFFICULTIES.map((d) => (
-              <MenuItem key={d.value} value={d.value}>
-                {d.label}
-              </MenuItem>
+              <MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>
             ))}
           </Select>
         </FormControl>
       </Box>
 
-      {/* Loading & errors */}
       {loading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
           <CircularProgress />
@@ -117,7 +102,6 @@ export default function Discover() {
       )}
       {error && <Alert severity="error">{error}</Alert>}
 
-      {/* Results */}
       {!loading && recipes.length === 0 && (
         <Alert severity="info">No recipes found. Try different filters!</Alert>
       )}
@@ -136,12 +120,16 @@ export default function Discover() {
                       <Chip
                         size="small"
                         color={recipe.saved_status === 'made' ? 'success' : 'warning'}
-                        label={recipe.saved_status === 'made' ? 'In My Journal • Made' : 'In My Journal • Want To Make'}
+                        label={
+                          recipe.saved_status === 'made'
+                            ? 'In My Journal • Made'
+                            : 'In My Journal • Want To Make'
+                        }
                       />
                     </Box>
                   )}
-                  <Box onClick={() => handleRecipeClick(recipe.id)}>
-                  <RecipeCard recipe={recipe} showCreator={true} />
+                  <Box onClick={() => navigate(`/recipes/${recipe.id}`)}>
+                    <RecipeCard recipe={recipe} showCreator={true} />
                   </Box>
                 </Box>
               </Grid>

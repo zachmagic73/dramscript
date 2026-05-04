@@ -18,6 +18,7 @@ interface RecipeInput {
   placeholder_icon?: number | null;
   template_id?: string | null;
   source_recipe_id?: string | null;
+  source_credit?: string | null;
   servings?: number;
   ingredients?: { name: string; amount?: number | null; unit?: string | null; referenced_recipe_id?: string | null }[];
   steps?: { description: string }[];
@@ -394,24 +395,29 @@ export async function createRecipe(request: Request, env: Env): Promise<Response
 
   const id = crypto.randomUUID();
 
-  const visibility = body.visibility || (body.is_public ? 'public' : 'private');
+  // Recipes attributed to an external source must stay private
+  const sourceCredit = body.source_credit?.trim() || null;
+  const visibility = sourceCredit
+    ? 'private'
+    : body.visibility || (body.is_public ? 'public' : 'private');
+  const isPublic = sourceCredit ? 0 : (body.is_public ? 1 : 0);
 
   await env.dramscript_db
     .prepare(`
       INSERT INTO recipes
         (id, user_id, name, type, glass_type, ice_type, method, garnish, notes,
-         difficulty, tags, is_public, visibility, want_to_make, placeholder_icon, template_id, source_recipe_id, servings, version)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+         difficulty, tags, is_public, visibility, want_to_make, placeholder_icon, template_id, source_recipe_id, source_credit, servings, version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `)
     .bind(
       id, auth.user_id, body.name.trim(), body.type ?? 'cocktail',
       body.glass_type ?? null, body.ice_type ?? null, body.method ?? null,
       body.garnish ?? null, body.notes ?? null, body.difficulty ?? null,
       JSON.stringify(body.tags ?? []),
-      body.is_public ? 1 : 0,
+      isPublic,
       visibility, body.want_to_make ? 1 : 0,
       body.placeholder_icon ?? null,
-      body.template_id ?? null, body.source_recipe_id ?? null,
+      body.template_id ?? null, body.source_recipe_id ?? null, sourceCredit,
       body.servings ?? 1,
     )
     .run();
@@ -455,14 +461,19 @@ export async function updateRecipe(request: Request, env: Env, id: string): Prom
     .run();
 
   const newVersion = recipe.version + 1;
-  const visibility = body.visibility || (body.is_public ? 'public' : 'private');
+  // Recipes attributed to an external source must stay private
+  const sourceCredit = body.source_credit?.trim() || null;
+  const visibility = sourceCredit
+    ? 'private'
+    : body.visibility || (body.is_public ? 'public' : 'private');
+  const isPublic = sourceCredit ? 0 : (body.is_public ? 1 : 0);
 
   await env.dramscript_db
     .prepare(`
       UPDATE recipes SET
         name = ?, type = ?, glass_type = ?, ice_type = ?, method = ?,
         garnish = ?, notes = ?, difficulty = ?, tags = ?, is_public = ?,
-        visibility = ?, want_to_make = ?, placeholder_icon = ?, servings = ?, version = ?,
+        visibility = ?, want_to_make = ?, placeholder_icon = ?, source_credit = ?, servings = ?, version = ?,
         updated_at = strftime('%s', 'now')
       WHERE id = ? AND user_id = ?
     `)
@@ -471,9 +482,9 @@ export async function updateRecipe(request: Request, env: Env, id: string): Prom
       body.glass_type ?? null, body.ice_type ?? null, body.method ?? null,
       body.garnish ?? null, body.notes ?? null, body.difficulty ?? null,
       JSON.stringify(body.tags ?? []),
-      body.is_public ? 1 : 0,
+      isPublic,
       visibility, body.want_to_make ? 1 : 0,
-      body.placeholder_icon ?? null,
+      body.placeholder_icon ?? null, sourceCredit,
       body.servings ?? 1, newVersion,
       id, auth.user_id,
     )

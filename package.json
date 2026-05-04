@@ -14,7 +14,9 @@
     "db:migrate:local": "wrangler d1 execute dramscript-db --local --file=./schema.sql",
     "db:migrate:remote": "wrangler d1 execute dramscript-db --remote --file=./schema.sql --yes",
     "db:seed:local": "wrangler d1 execute dramscript-db --local --file=./seed-templates.sql",
-    "db:seed:remote": "wrangler d1 execute dramscript-db --remote --file=./seed-templates.sql --yes"
+    "db:seed:remote": "wrangler d1 execute dramscript-db --remote --file=./seed-templates.sql --yes",
+    "db:seed-ingredients:local": "wrangler d1 execute dramscript-db --local --file=./seed-ingredient-reference.sql",
+    "db:seed-ingredients:remote": "wrangler d1 execute dramscript-db --remote --file=./seed-ingredient-reference.sql --yes"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -26,7 +28,8 @@
     "@mui/material": "^6.4.8",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^7.5.1"
+    "react-router-dom": "^7.5.1",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.21.0",

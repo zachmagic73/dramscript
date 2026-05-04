@@ -21,18 +21,18 @@ interface RecipeCardProps {
   onClick?: () => void;
   showCreator?: boolean;
   suppressPrepTypeIcons?: boolean;
+  /** Render only the inner content without the Card/CardActionArea wrapper */
+  bare?: boolean;
 }
 
-export default function RecipeCard({ recipe, onClick, showCreator, suppressPrepTypeIcons = false }: RecipeCardProps) {
+export default function RecipeCard({ recipe, onClick, showCreator, suppressPrepTypeIcons = false, bare = false }: RecipeCardProps) {
   const imageUrl = recipe.primary_image
     ? `/api/images/${recipe.primary_image}`
     : null;
   const placeholderIcon = resolvePlaceholderIcon(recipe, recipe.placeholder_icon);
   const suppressPlaceholderIcon = suppressPrepTypeIcons && PREP_RECIPE_TYPES.has(recipe.type);
 
-  return (
-    <Card>
-      <CardActionArea onClick={onClick}>
+  const content = (
         <Box sx={{ display: 'flex', alignItems: 'stretch' }}>
           {imageUrl ? (
             <CardMedia
@@ -129,6 +129,14 @@ export default function RecipeCard({ recipe, onClick, showCreator, suppressPrepT
           )}
           </CardContent>
         </Box>
+  );
+
+  if (bare) return content;
+
+  return (
+    <Card>
+      <CardActionArea onClick={onClick}>
+        {content}
       </CardActionArea>
     </Card>
   );

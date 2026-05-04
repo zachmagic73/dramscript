@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Typography, Button, Chip, Grid2, Card, CardContent,
   CircularProgress, Alert, Divider, Rating, Avatar,
@@ -34,6 +34,9 @@ interface TemplateDetailData {
 export default function TemplateDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const backTo: string = (location.state as { from?: string } | null)?.from ?? '/templates';
+  const backLabel: string = (location.state as { fromLabel?: string } | null)?.fromLabel ?? 'Templates';
   const { user } = useAuth();
   const [data, setData] = useState<TemplateDetailData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,8 +82,8 @@ export default function TemplateDetail() {
   if (error || !data) return (
     <Box>
       <Alert severity="error">{error ?? 'Template not found'}</Alert>
-      <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/templates')} sx={{ mt: 2 }}>
-        Back to templates
+      <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(backTo)} sx={{ mt: 2 }}>
+        {backLabel ? `Back to ${backLabel}` : 'Back'}
       </Button>
     </Box>
   );
@@ -89,8 +92,8 @@ const recipe = data.canonical;
 
   return (
     <Box>
-      <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/templates')} sx={{ mb: 2, color: 'text.secondary' }}>
-        Templates
+      <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(backTo)} sx={{ mb: 2, color: 'text.secondary' }}>
+        {backLabel}
       </Button>
 
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2, mb: 3 }}>

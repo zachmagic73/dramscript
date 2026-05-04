@@ -7,11 +7,28 @@ import {
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import FilterListIcon from '@mui/icons-material/FilterList';
-import type { Recipe, RecipeType, Difficulty, RecipeTemplate } from '../types';
+import type { Recipe, RecipeType, Difficulty, RecipeTemplate, FriendRequest } from '../types';
 import { RECIPE_TYPES, DIFFICULTIES } from '../types';
 import RecipeCard from '../components/RecipeCard';
 import { getMatchedVia } from '../utils/synonyms';
 import { useAuth } from '../hooks/useAuth';
+
+const DISMISSED_KEY = 'dramscript_dismissed_accepted_friends';
+
+function getDismissed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DISMISSED_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function dismissAccepted(id: string): void {
+  const dismissed = getDismissed();
+  dismissed.add(id);
+  localStorage.setItem(DISMISSED_KEY, JSON.stringify([...dismissed]));
+}
 
 const ALL = '';
 
@@ -23,6 +40,11 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Friend alerts
+  const [pendingRequests, setPendingRequests] = useState<FriendRequest[]>([]);
+  const [acceptedSent, setAcceptedSent] = useState<FriendRequest[]>([]);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(getDismissed);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -90,8 +112,67 @@ export default function Dashboard() {
     return () => clearTimeout(t);
   }, [fetchRecipes]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchFriendAlerts() {
+      try {
+        const [pendingRes, acceptedRes] = await Promise.all([
+          fetch('/api/friendships/pending'),
+          fetch('/api/friendships/accepted-sent'),
+        ]);
+        if (cancelled) return;
+        if (pendingRes.ok) {
+          const data = (await pendingRes.json()) as { friendRequests: FriendRequest[] };
+          setPendingRequests(data.friendRequests || []);
+        }
+        if (acceptedRes.ok) {
+          const data = (await acceptedRes.json()) as { accepted: FriendRequest[] };
+          setAcceptedSent(data.accepted || []);
+        }
+      } catch {
+        // Non-critical — silently ignore
+      }
+    }
+    void fetchFriendAlerts();
+    return () => { cancelled = true; };
+  }, [user]);
+
+  const handleDismissAccepted = (id: string) => {
+    dismissAccepted(id);
+    setDismissedIds((prev) => new Set([...prev, id]));
+  };
+
+  const undismissedAccepted = acceptedSent.filter((f) => !dismissedIds.has(f.id));
+
   return (
     <Box>
+      {/* Friend alerts */}
+      {pendingRequests.length > 0 && (
+        <Alert
+          severity="info"
+          sx={{ mb: 2 }}
+          action={
+            <Button color="inherit" size="small" onClick={() => navigate('/friends')}>
+              View
+            </Button>
+          }
+        >
+          {pendingRequests.length === 1
+            ? `${pendingRequests[0].display_name ?? 'Someone'} sent you a friend request`
+            : `You have ${pendingRequests.length} new friend requests`}
+        </Alert>
+      )}
+      {undismissedAccepted.map((f) => (
+        <Alert
+          key={f.id}
+          severity="success"
+          sx={{ mb: 2 }}
+          onClose={() => handleDismissAccepted(f.id)}
+        >
+          {f.display_name ?? 'Someone'} accepted your friend request 🎉
+        </Alert>
+      ))}
+
       {/* Header */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h4" gutterBottom>
