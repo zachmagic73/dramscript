@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   AppBar, Toolbar, Typography, IconButton, Drawer, List, ListItemButton,
   ListItemIcon, ListItemText, Box, Divider, Avatar, useMediaQuery,
-  useTheme, Tooltip,
+  useTheme, Tooltip, Stack,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
@@ -13,18 +13,26 @@ import LocalBarIcon from '@mui/icons-material/LocalBar';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AutoStoriesIcon from '@mui/icons-material/AutoStories';
 import PublicIcon from '@mui/icons-material/Public';
+import TipsAndUpdatesIcon from '@mui/icons-material/TipsAndUpdates';
 import GroupIcon from '@mui/icons-material/Group';
+import InventoryIcon from '@mui/icons-material/Inventory2';
+import CalculateIcon from '@mui/icons-material/Calculate';
 import { useAuth } from '../hooks/useAuth';
 import FeatureNoticeBanner from './FeatureNoticeBanner';
+import NotificationPermissionPrompt from './NotificationPermissionPrompt';
+import NotificationCenter from './NotificationCenter';
 
 const DRAWER_WIDTH = 240;
 
 const navItems = [
   { label: 'My Journal',  icon: <MenuBookIcon />,      path: '/'          },
   { label: 'Templates',  icon: <AutoStoriesIcon />,   path: '/templates' },
-  { label: 'Discover',   icon: <PublicIcon />,        path: '/discover'  },
+  { label: 'Discover',        icon: <PublicIcon />,          path: '/discover'  },
+  { label: 'Suggest a Drink', icon: <TipsAndUpdatesIcon />,  path: '/suggest'   },
+  { label: 'My Bar',     icon: <InventoryIcon />,     path: '/inventory'   },
+  { label: 'Calculators', icon: <CalculateIcon />,    path: '/calculators' },
   { label: 'Friends',    icon: <GroupIcon />,         path: '/friends'   },
-  { label: 'Profile',    icon: <AccountCircleIcon />, path: '/profile'   },
+  { label: 'Profile',    icon: <AccountCircleIcon />, path: '/profile'     },
 ];
 
 export default function Layout() {
@@ -33,6 +41,7 @@ export default function Layout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -86,11 +95,14 @@ export default function Layout() {
             {user?.email}
           </Typography>
         </Box>
-        <Tooltip title="Sign out">
-          <IconButton size="small" onClick={logout} sx={{ color: 'text.secondary' }}>
-            <LogoutIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
+        <Stack direction="row" spacing={0.5}>
+          {!isMobile && <NotificationCenter />}
+          <Tooltip title="Sign out">
+            <IconButton size="small" onClick={logout} sx={{ color: 'text.secondary' }}>
+              <LogoutIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
       </Box>
     </Box>
   );
@@ -123,6 +135,7 @@ export default function Layout() {
               <Typography variant="h6" sx={{ fontFamily: '"Playfair Display", serif', color: 'primary.main', flex: 1 }}>
                 Dramscript
               </Typography>
+              <NotificationCenter />
             </Toolbar>
           </AppBar>
           <Drawer
@@ -143,35 +156,39 @@ export default function Layout() {
         sx={{
           flex: 1,
           p: { xs: 2, sm: 3 },
+          pb: { xs: 12, sm: 12 },
           mt: isMobile ? 8 : 0,
           maxWidth: '100%',
           overflow: 'hidden',
         }}
       >
+        <NotificationPermissionPrompt />
         <FeatureNoticeBanner />
         <Outlet />
       </Box>
 
-      {/* FAB — new recipe */}
-      <Tooltip title="New recipe" placement="left">
-        <IconButton
-          onClick={() => navigate('/recipes/new')}
-          sx={{
-            position: 'fixed',
-            bottom: 24,
-            right: 24,
-            bgcolor: 'primary.main',
-            color: 'primary.contrastText',
-            width: 56,
-            height: 56,
-            boxShadow: '0 4px 14px rgba(212,175,55,0.4)',
-            '&:hover': { bgcolor: 'primary.dark' },
-            zIndex: 1200,
-          }}
-        >
-          <AddIcon />
-        </IconButton>
-      </Tooltip>
+      {/* FAB — new recipe (My Journal only) */}
+      {location.pathname === '/' && (
+        <Tooltip title="New recipe" placement="left">
+          <IconButton
+            onClick={() => navigate('/recipes/new')}
+            sx={{
+              position: 'fixed',
+              bottom: 24,
+              right: 24,
+              bgcolor: 'primary.main',
+              color: 'primary.contrastText',
+              width: 56,
+              height: 56,
+              boxShadow: '0 4px 14px rgba(212,175,55,0.4)',
+              '&:hover': { bgcolor: 'primary.dark' },
+              zIndex: 1200,
+            }}
+          >
+            <AddIcon />
+          </IconButton>
+        </Tooltip>
+      )}
     </Box>
   );
 }

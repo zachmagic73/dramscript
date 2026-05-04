@@ -10,8 +10,16 @@ import { uploadImageViaWorker, presignImageUpload, finalizeImageUpload, serveIma
 import { listTemplates, getTemplate, startFromTemplate } from './templates';
 import {
   searchUsers, sendFriendRequest, acceptFriendRequest, rejectFriendRequest,
-  listPendingFriendRequests, listPendingSentInvites, listAcceptedFriendships, deleteFriendship,
+  listPendingFriendRequests, listPendingSentInvites, listAcceptedFriendships, listAcceptedSentRequests, deleteFriendship,
 } from './friends';
+import { listInventory, addInventoryItem, deleteInventoryItem, searchIngredientReference } from './inventory';
+import { getShoppingList, getRecipeCoverage } from './shopping';
+import { discoverByInventory, discoverByMood, discoverBySpiritModifier, getAiSuggestions } from './discover';
+import { parseRecipeFromImage, parseRecipeFromText } from './ai-parse';
+import {
+  subscribeToPushNotifications, unsubscribeFromPushNotifications,
+  getPushSubscriptions, getUserNotifications, markNotificationAsRead,
+} from './notifications';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -123,6 +131,9 @@ export default {
     // List accepted friendships
     if (pathname === '/api/friendships/accepted' && method === 'GET') return listAcceptedFriendships(request, env);
 
+    // List friend requests I sent that were accepted
+    if (pathname === '/api/friendships/accepted-sent' && method === 'GET') return listAcceptedSentRequests(request, env);
+
     // Accept/reject/delete friendship
     const friendshipMatch = pathname.match(/^\/api\/friendships\/([^/]+)$/);
     if (friendshipMatch) {
@@ -143,7 +154,56 @@ export default {
     const rejectMatch = pathname.match(/^\/api\/friendships\/([^/]+)\/reject$/);
     if (rejectMatch && method === 'PATCH') return rejectFriendRequest(request, env, rejectMatch[1]);
 
+    // ── Inventory ─────────────────────────────────────────────────────────────
+    if (pathname === '/api/inventory' && method === 'GET')  return listInventory(request, env);
+    if (pathname === '/api/inventory' && method === 'POST') return addInventoryItem(request, env);
+
+    const inventoryItemMatch = pathname.match(/^\/api\/inventory\/([^/]+)$/);
+    if (inventoryItemMatch && method === 'DELETE') return deleteInventoryItem(request, env, inventoryItemMatch[1]);
+
+    // ── Ingredient Reference ──────────────────────────────────────────────────
+    if (pathname === '/api/ingredient-reference' && method === 'GET') return searchIngredientReference(request, env);
+
+    // ── Shopping List ─────────────────────────────────────────────────────────
+    if (pathname === '/api/shopping-list' && method === 'GET') return getShoppingList(request, env);
+
+    // /api/recipes/:id/coverage
+    const coverageMatch = pathname.match(/^\/api\/recipes\/([^/]+)\/coverage$/);
+    if (coverageMatch && method === 'GET') return getRecipeCoverage(request, env, coverageMatch[1]);
+
+    // ── Drink Discovery ──────────────────────────────────────────────────────
+    if (pathname === '/api/discover/inventory'       && method === 'GET')  return discoverByInventory(request, env);
+    if (pathname === '/api/discover/mood'            && method === 'GET')  return discoverByMood(request, env);
+    if (pathname === '/api/discover/spirit-modifier' && method === 'GET')  return discoverBySpiritModifier(request, env);
+    if (pathname === '/api/discover/ai-suggestions'  && method === 'POST') return getAiSuggestions(request, env);
+
+    // ── AI Recipe Parsing ─────────────────────────────────────────────────────
+    if (pathname === '/api/recipes/parse-image' && method === 'POST') return parseRecipeFromImage(request, env);
+    if (pathname === '/api/recipes/parse-text' && method === 'POST') return parseRecipeFromText(request, env);
+
+    // ── Push Notifications ────────────────────────────────────────────────────
+    // Public VAPID key (unauthenticated — needed before subscription is created)
+    if (pathname === '/api/notifications/vapid-public-key' && method === 'GET') {
+      return new Response(JSON.stringify({ vapidPublicKey: env.VAPID_PUBLIC_KEY ?? null }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (pathname === '/api/notifications/subscribe' && method === 'POST') return subscribeToPushNotifications(request, env);
+    if (pathname === '/api/notifications/unsubscribe' && method === 'POST') return unsubscribeFromPushNotifications(request, env);
+    if (pathname === '/api/notifications/subscriptions' && method === 'GET') return getPushSubscriptions(request, env);
+    if (pathname === '/api/notifications' && method === 'GET') return getUserNotifications(request, env);
+
+    // /api/notifications/:id/read
+    const notificationReadMatch = pathname.match(/^\/api\/notifications\/([^/]+)\/read$/);
+    if (notificationReadMatch && method === 'PATCH') return markNotificationAsRead(request, env, notificationReadMatch[1]);
+
     // ── SPA Fallback ──────────────────────────────────────────────────────────
-    return env.ASSETS.fetch(request);
+    // Static assets (js, css, images, etc.) are served as-is.
+    // All other paths get index.html so React Router handles client-side routing.
+    if (/\.[a-z0-9]+$/i.test(pathname)) {
+      return env.ASSETS.fetch(request);
+    }
+    return env.ASSETS.fetch(new Request(new URL('/', request.url).toString(), request));
   },
 } satisfies ExportedHandler<Env>;

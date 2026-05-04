@@ -1,5 +1,6 @@
 import type { Env } from './types';
 import { requireAuth, json, badRequest } from './middleware';
+import { sendPushNotificationToUser } from './notifications';
 
 type DbRow = Record<string, unknown>;
 
@@ -99,6 +100,27 @@ export async function sendFriendRequest(request: Request, env: Env): Promise<Res
     .bind(friendshipId, auth.user_id, addressee_id, Math.floor(Date.now() / 1000))
     .run();
 
+  // Get requester's display name and send push notification
+  const requester = await env.dramscript_db
+    .prepare('SELECT display_name FROM users WHERE id = ?')
+    .bind(auth.user_id)
+    .first<DbRow>();
+
+  if (requester) {
+    await sendPushNotificationToUser(env, addressee_id, {
+      type: 'friend_request_received',
+      title: 'New Friend Request',
+      body: `${requester.display_name} sent you a friend request`,
+      tag: `friend_request_${friendshipId}`,
+      data: {
+        friendship_id: friendshipId,
+        requester_id: auth.user_id,
+        action_url: '/friends',
+      },
+      relatedUserId: auth.user_id,
+    });
+  }
+
   return json({ id: friendshipId, status: 'pending' }, 201);
 }
 
@@ -134,6 +156,27 @@ export async function acceptFriendRequest(request: Request, env: Env, id: string
     .prepare('UPDATE friendships SET status = ? WHERE id = ?')
     .bind('accepted', id)
     .run();
+
+  // Get acceptee's display name and send push notification to requester
+  const acceptee = await env.dramscript_db
+    .prepare('SELECT display_name FROM users WHERE id = ?')
+    .bind(auth.user_id)
+    .first<DbRow>();
+
+  if (acceptee) {
+    await sendPushNotificationToUser(env, friendship.requester_id as string, {
+      type: 'friend_request_accepted',
+      title: 'Friend Request Accepted',
+      body: `${acceptee.display_name} accepted your friend request`,
+      tag: `friend_request_accepted_${id}`,
+      data: {
+        friendship_id: id,
+        user_id: auth.user_id,
+        action_url: '/friends',
+      },
+      relatedUserId: auth.user_id,
+    });
+  }
 
   return json({ id, status: 'accepted' });
 }
@@ -255,6 +298,31 @@ export async function listAcceptedFriendships(request: Request, env: Env): Promi
     .all<DbRow>();
 
   return json({ friends: result.results });
+}
+
+/**
+ * List friend requests sent by the current user that have been accepted
+ * GET /api/friendships/accepted-sent
+ */
+export async function listAcceptedSentRequests(request: Request, env: Env): Promise<Response> {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+
+  const result = await env.dramscript_db
+    .prepare(
+      `
+      SELECT f.id, f.requester_id, f.addressee_id, f.status, f.created_at,
+             u.display_name, u.avatar_url
+      FROM friendships f
+      JOIN users u ON u.id = f.addressee_id
+      WHERE f.requester_id = ? AND f.status = 'accepted'
+      ORDER BY f.created_at DESC
+      `,
+    )
+    .bind(auth.user_id)
+    .all<DbRow>();
+
+  return json({ accepted: result.results });
 }
 
 /**
